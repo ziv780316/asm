@@ -1,7 +1,7 @@
 #=================================================
 # Makefile settings
 #=================================================
-.PHONY: create_dir # specify phony target, do not generate file as target name
+.PHONY: default create_dir clean # specify phony target, do not generate file as target name
 
 .DEFAULT_GOAL=default # specify default target if there is no target specified
 
@@ -13,10 +13,13 @@ SHELL=/bin/bash
 # Compiler settings
 #=================================================
 CC         = gcc
+CPP        = g++
 LINKER     = $(CC)
+CPPLINKER  = $(CPP)
 DEFINES    = 
 BUILD_TYPE = -O0
 CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 -fPIC 
+CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98 -fPIC 
 LIBS       = -lm 
 INCLUDE    = 
 MOVE       = mv -f
@@ -26,7 +29,7 @@ MOVE       = mv -f
 #=================================================
 ASM_DIR       	  := asm
 BIN_DIR       	  := bin
-TARGET            := func_args
+TARGET            := func_args class
 
 #=================================================
 # Compile implicit rules
@@ -36,16 +39,29 @@ TARGET            := func_args
 	$(CC) -S $< -o $@ $(CFLAGS) $(INCLUDE)
 	@$(MOVE) $@ $(ASM_DIR) # @ means do not echo command
 
+%.s:%.cpp
+	@echo "build $(basename $@) ..."
+	$(CPP) -S $< -o $@ $(CPPFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(ASM_DIR) # @ means do not echo command
+
 #=================================================
 # Target rules
 #=================================================
-default: create_dir $(TARGET)
-
 func_args: func_args.s
 	$(LINKER) -o $@ $(ASM_DIR)/$(notdir $<) $(LIBS);\
 	$(MOVE) $@ $(BIN_DIR)
 
+class: class.s
+	$(CPPLINKER) -o $@ $(ASM_DIR)/$(notdir $<) $(LIBS);\
+	$(MOVE) $@ $(BIN_DIR)
+
+#=================================================
+# Phony rules
+#=================================================
+default: create_dir $(TARGET)
+
 create_dir:
+	@echo "create dir ..."
 	@mkdir -p $(ASM_DIR)
 	@mkdir -p $(BIN_DIR)
 
