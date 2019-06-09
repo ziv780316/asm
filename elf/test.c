@@ -30,7 +30,7 @@ __attribute__((noinline))
 int f1 ( int x )
 {
 	int y = x + 1;
-	char *local_str = "string in f1";
+	char *local_str = "string in f1\nafter\tnewline";
 	return y;
 }
 

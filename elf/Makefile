@@ -29,25 +29,26 @@ MOVE       = mv -f
 #=================================================
 BIN_DIR       	  := bin
 LIB_DIR       	  := library
-TARGET            := elf_str_find test
+TARGET            := elf_hack test
 
 #=================================================
 # Compile implicit rules
 #=================================================
 %.o:%.c
 	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE)
-	$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
 
 %.s:%.c
 	$(CC) -S $< -o $@ $(CFLAGS) $(INCLUDE)
-	$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
 
 #=================================================
 # Target rules
 #=================================================
-elf_str_find: elf_str_find.o 
-	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) $(LIBS)
-	$(MOVE) $@ $(BIN_DIR)
+elf_hack: elf_hack.o opts.o
+	cd $(LIB_DIR);\
+	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
+	$(MOVE) $@ ../$(BIN_DIR)
 
 test: test.o test.s
 	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) $(LIBS)
@@ -65,5 +66,10 @@ create_dir:
 
 clean:
 	rm -rf $(LIB_DIR)/* $(BIN_DIR)/*
+
+cscope:
+	find . -name "*.c" -o -name "*.h" > cscope.files 
+	cscope -Rbq -i cscope.files
+
 
 
