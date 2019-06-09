@@ -29,7 +29,7 @@ MOVE       = mv -f
 #=================================================
 ASM_DIR       	  := asm
 BIN_DIR       	  := bin
-TARGET            := func_args class
+TARGET            := func_args class vprintf
 
 #=================================================
 # Compile implicit rules
@@ -53,6 +53,10 @@ func_args: func_args.s
 
 class: class.s
 	$(CPPLINKER) -o $@ $(ASM_DIR)/$(notdir $<) $(LIBS);\
+	$(MOVE) $@ $(BIN_DIR)
+
+vprintf: vprintf.s
+	$(LINKER) -o $@ $(ASM_DIR)/$(notdir $<) $(LIBS);\
 	$(MOVE) $@ $(BIN_DIR)
 
 #=================================================
