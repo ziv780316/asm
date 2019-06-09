@@ -7,9 +7,8 @@ class test
 
 		static int test_cnt;
 
-		test ()
+		test () : a(1)
 		{
-			a = 1;
 			b = 2;
 			test_cnt += 1;
 		}
