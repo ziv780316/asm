@@ -11,13 +11,15 @@
 
 void print_info ( char *fmt, ... );
 void print_error ( char *fmt, ... );
+bool is_str_character ( int ch );
 void read_n_byte ( FILE *fin, size_t n, void *buf );
 void seek_file ( FILE *fin, Elf64_Off offset );
 void read_section_header ( FILE *fin, Elf64_Ehdr *elf_header, Elf64_Half idx, void *buf );
 void read_section_data ( FILE *fin, Elf64_Shdr *sh_header, void *buf );
 void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header );
 Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name );
-void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header );
+void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
+void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 
 void print_info ( char *fmt, ... )
 {
@@ -37,6 +39,11 @@ void print_error ( char *fmt, ... )
 	vfprintf( stderr, fmt, args );
 	va_end( args );
 	abort();
+}
+
+bool is_str_character ( int ch )
+{
+	return isprint(ch) || ('\n' == ch) || ('\t' == ch);
 }
 
 void read_n_byte( FILE *fin, size_t n, void *buf )
@@ -234,24 +241,16 @@ Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name )
 //  Elf64_Xword	sh_entsize;		/* Entry size if section holds table */
 //} Elf64_Shdr;
 //Elf64_Shdr
-void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header )
+void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 {
-	char *section_name;
-	if ( g_opts.section_name )
-	{
-		section_name = g_opts.section_name;	
-	}
-	else
-	{
-		section_name = ".rodata";
-	}
-
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
 	print_info( "dump section %s idx=%d ...\n", section_name, idx );
 
 	Elf64_Shdr sh_header;
 	read_section_header( fin, elf_header, idx, &sh_header );
 
+	bool start_str = false;
+	bool start_nonstr = false;
 	int ch;
 	seek_file( fin, sh_header.sh_offset );
 	for ( Elf64_Xword i = 0; i < sh_header.sh_size; ++i )
@@ -265,29 +264,178 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header )
 		// unprintable character show '*'
 		if ( isprint( ch ) )
 		{
+			if ( start_nonstr )
+			{
+				start_nonstr = false;
+				printf( "\n" );
+			}
+			if ( !start_str )
+			{
+				start_str = true;
+				printf( "%#lx ", sh_header.sh_addr + i );
+			}
 			printf( "%c", ch );
 		}
 		else
 		{
-			if ( '\t' == ch )
+			if ( start_str )
 			{
-				printf( "\\t" );
-			}
-			else if ( '\n' == ch )
-			{
-				printf( "\\n" );
-			}
-			else if ( '\0' == ch )
-			{
-				printf( "\\0" );
+				if ( '\t' == ch )
+				{
+					printf( "\\t" );
+				}
+				else if ( '\n' == ch )
+				{
+					printf( "\\n" );
+				}
+				else if ( '\0' == ch )
+				{
+					// null-terminated string
+					if ( start_str )
+					{
+						start_str = false;
+						printf ( "\n" );
+					}
+				}
+				else
+				{
+					// non-null-terminated string
+					start_str = false;
+					printf ( "\n" );
+				}
 			}
 			else
 			{
-				printf( "*" );
+				// ignore other character
+				if ( !start_nonstr )
+				{
+					start_nonstr = true;
+					printf( "%#lx", sh_header.sh_addr + i );
+				}
+				printf( " %#2hhx", ch );
 			}
 		}
 	}
-	printf( "\n" );
+
+	if ( start_nonstr )
+	{
+		printf ( "\n" );
+	}
+}
+
+void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match )
+{
+	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	print_info( "dump section %s idx=%d ...\n", section_name, idx );
+
+	Elf64_Shdr sh_header;
+	read_section_header( fin, elf_header, idx, &sh_header );
+
+	bool start_str = false;
+	bool start_nonstr = false;
+	bool is_find_exact = false;
+	int ch;
+	Elf64_Off match_pos = 0;
+	Elf64_Off str_pos = 0;
+	Elf64_Off str_file_pos = 0;
+	Elf64_Off origin_file_pos;
+	size_t match_cnt = 0;
+	size_t pattern_len = strlen( search_pattern );
+	char full_str[BUFSIZ];
+	seek_file( fin, sh_header.sh_offset );
+	for ( Elf64_Xword i = 0; i < sh_header.sh_size; ++i )
+	{
+		ch = fgetc( fin );
+		if ( EOF == ch )
+		{
+			print_error( "[Error] fgetc fail --> %s\n", strerror(errno) );
+		}
+
+		if ( 0 == match_cnt )
+		{
+			if ( is_str_character( ch ) )
+			{
+				if ( !start_str )
+				{
+					start_str = true;
+					str_pos = sh_header.sh_addr + i;
+					str_file_pos = ftell( fin ) - 1;
+				}
+			}
+			else
+			{
+				start_str = false;
+			}
+
+			match_pos = sh_header.sh_addr + i;
+		}
+
+		if ( search_pattern[match_cnt] == ch )
+		{
+			++match_cnt;
+		}
+		else if ( ('\n' == ch) && (match_cnt == pattern_len - 1) )
+		{
+			// user does not type last character '\n'
+			++match_cnt;
+		}
+		else
+		{
+			match_cnt = 0;
+		}
+
+		if ( match_cnt == pattern_len )
+		{
+			// check next character is '\0' 
+			ch = fgetc( fin );
+			if ( EOF == ch )
+			{
+				print_error( "[Error] fgetc fail --> %s\n", strerror(errno) );
+			}
+
+			if ( ('\0' == ch) && (str_pos == match_pos) )
+			{
+				printf( "exact match '%s' at %#lx in section %s\n", search_pattern, str_pos, section_name );
+				is_find_exact = true;
+			}
+			else
+			{
+				// partial match, show full string (read character until '\0')
+				fseek( fin, -1, SEEK_CUR );
+				origin_file_pos = ftell( fin );
+				fseek( fin, str_file_pos, SEEK_SET ); 
+				int j = 0;
+				while ( true )
+				{
+					ch = fgetc( fin );
+					full_str[j] = ch;
+					++j;
+					if ( EOF == ch )
+					{
+						print_error( "[Error] fgetc fail --> %s\n", strerror(errno) );
+					}
+					if ( '\0' == ch )
+					{
+						full_str[j] = '\0';
+						break;
+					}
+				}
+				fseek( fin, origin_file_pos, SEEK_SET ); 
+				
+				if ( exact_match )
+				{
+					print_info( "partial match '%s' at %#lx in section %s (full-str = %s)\n", search_pattern, str_pos, section_name, full_str );
+				}
+				else
+				{
+					printf( "partial match '%s' at %#lx in section %s (full-str = %s)\n", search_pattern, str_pos, section_name, full_str );
+				}
+
+			}
+
+			match_cnt = 0;
+		}
+	}
 }
 
 int main ( int argc, char **argv )
@@ -308,11 +456,26 @@ int main ( int argc, char **argv )
 	// start to hack
 	if ( DUMP_STRING == g_opts.utility )
 	{
-		dump_elf_string( fin, &elf_header );
+		if ( g_opts.section_name )
+		{
+			dump_elf_string( fin, &elf_header, g_opts.section_name );
+		}
+		else
+		{
+			dump_elf_string( fin, &elf_header, ".rodata" );
+		}
+
 	}
 	else if ( FIND_STRING == g_opts.utility )
 	{
-		//find_elf_string( fin, &elf_header );
+		if ( g_opts.section_name )
+		{
+			find_elf_string( fin, &elf_header, g_opts.section_name, g_opts.search_pattern, g_opts.exact_match );
+		}
+		else
+		{
+			find_elf_string( fin, &elf_header, ".rodata", g_opts.search_pattern, g_opts.exact_match );
+		}
 	}
 
 	return EXIT_SUCCESS;

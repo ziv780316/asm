@@ -13,10 +13,12 @@ int g_x_bss = 0;
 int g_arr_bss[10] = {0};
 
 // locate in .data
-int g_x_data = 1;
+int g_x_data = 0xf5f6f7f8;
+const int g_x_data_const = 0xf1f2f3f4;
 
 // locate in .rodata
 char *global_str = "string in global";
+char global_str_non[] = { 'n', 'o', 'n', '-', 'n', 'u', 'l', 'l', ' ', 't', 'e', 'r', 'm', 'i', 'n', 'a', 't', 'e' };
 
 __attribute__((noinline)) 
 int f2 ( int x )
