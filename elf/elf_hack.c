@@ -13,6 +13,7 @@ void print_info ( char *fmt, ... );
 void print_error ( char *fmt, ... );
 bool is_str_character ( int ch );
 void read_n_byte ( FILE *fin, size_t n, void *buf );
+void read_string ( FILE *fin, void *buf );
 void seek_file ( FILE *fin, Elf64_Off offset );
 void read_section_header ( FILE *fin, Elf64_Ehdr *elf_header, Elf64_Half idx, void *buf );
 void read_section_data ( FILE *fin, Elf64_Shdr *sh_header, void *buf );
@@ -20,6 +21,9 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header );
 Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name );
 void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
+void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
+
+char **hash_section_idx_to_name = NULL;
 
 void print_info ( char *fmt, ... )
 {
@@ -61,6 +65,28 @@ void read_n_byte( FILE *fin, size_t n, void *buf )
 
 		total_read += n_read;
 		n_need = n - n_read;
+	}
+}
+
+// read null-terminated string
+void read_string( FILE *fin, void *buf )
+{
+	size_t total_read = 0;
+	size_t n_read;
+	while ( true )
+	{
+		n_read = fread( buf + total_read, 1, 1, fin );
+		if ( 0 == n_read )
+		{
+			print_error( "[Error] fread fail (n_read=%lu total_read=%lu) --> %s\n", n_read, total_read, strerror(errno) );
+		}
+
+		if ( '\0' == *((char *)buf + total_read) )
+		{
+			break;
+		}
+
+		total_read += n_read;
 	}
 }
 
@@ -185,12 +211,15 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	char *name_buf = malloc ( shstrtab.sh_size );
 	read_section_data( fin, &shstrtab, (void *)name_buf );
 
+	hash_section_idx_to_name = (char **) malloc ( sizeof(char *) * elf_header->e_shnum );
 	Elf64_Shdr sh_header;
 	print_info( "sections (name size virtual_addr):\n" );
 	for ( int i = 0; i < elf_header->e_shnum; ++i )
 	{
 		read_section_header( fin, elf_header, i, &sh_header );
 		print_info( " %-30s %-10lu %-#10lx\n", name_buf + sh_header.sh_name, sh_header.sh_size, sh_header.sh_addr );
+		hash_section_idx_to_name[i] = (char *) malloc ( strlen(name_buf + sh_header.sh_name) + 1 );
+		strcpy( hash_section_idx_to_name[i], name_buf + sh_header.sh_name );
 	}
 
 	free( name_buf );
@@ -320,6 +349,99 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 	if ( start_nonstr )
 	{
 		printf ( "\n" );
+	}
+}
+
+//typedef struct
+//{
+//  Elf64_Word	st_name;		/* Symbol name (string tbl index) */
+//  unsigned char	st_info;		/* Symbol type and binding */
+//  unsigned char st_other;		/* Symbol visibility */
+//  Elf64_Section	st_shndx;		/* Section index */
+//  Elf64_Addr	st_value;		/* Symbol value */
+//  Elf64_Xword	st_size;		/* Symbol size */
+//} Elf64_Sym;
+void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
+{
+	// read symtab section
+	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	print_info( "dump section %s idx=%d ...\n", section_name, idx );
+
+	Elf64_Shdr symtab_header;
+	read_section_header( fin, elf_header, idx, &symtab_header );
+
+	if ( SHT_SYMTAB != symtab_header.sh_type )
+	{
+		print_error( "[Error] '%s' is not symtab section\n", section_name );
+	}
+
+	// read strtab section (store symbol name)
+	Elf64_Half strtab_idx = search_section_idx( fin, elf_header, ".strtab" );
+	Elf64_Shdr strtab_header;
+	read_section_header( fin, elf_header, strtab_idx, &strtab_header );
+
+	if ( symtab_header.sh_entsize != sizeof( Elf64_Sym ) )
+	{
+		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Sym)=%lu\n", section_name, symtab_header.sh_entsize, sizeof(Elf64_Sym) );
+	}
+	if ( 0 != (symtab_header.sh_size % sizeof( Elf64_Sym )) )
+	{
+		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Sym)=%lu != 0\n", section_name, symtab_header.sh_entsize, sizeof(Elf64_Sym) );
+	}
+
+	Elf64_Off origin_file_pos;
+	size_t n_symbol = symtab_header.sh_size / symtab_header.sh_entsize;
+	Elf64_Sym symbol;
+	char symbol_name[BUFSIZ];
+	char *bind_type;
+	char *data_type;
+	seek_file( fin, symtab_header.sh_offset );
+	for ( size_t i = 0; i < n_symbol; ++i )
+	{
+		read_n_byte( fin, symtab_header.sh_entsize, &symbol );
+		origin_file_pos = ftell( fin );
+		seek_file( fin, strtab_header.sh_offset + symbol.st_name );
+		read_string( fin, symbol_name );
+		seek_file( fin, origin_file_pos );
+		
+		switch( ELF64_ST_TYPE( symbol.st_info ) )
+		{
+			case STT_FUNC:
+				data_type = "function";
+				break;
+
+			case STT_OBJECT:
+				data_type = "data";
+				break;
+
+			default:
+				data_type = "?";
+				break;
+
+		}
+
+		switch( ELF64_ST_BIND( symbol.st_info ) )
+		{
+			case STB_LOCAL:
+				bind_type = "local";
+				break;
+
+			case STB_GLOBAL:
+				bind_type = "global";
+				break;
+
+			default:
+				bind_type = "?";
+				break;
+
+		}
+
+		if ( symbol.st_shndx >= elf_header->e_shnum )
+		{
+			continue;
+		}
+
+		printf( "%-30s virtual_addr=%#lx size=%lu section=%s type=%s bind=%s\n", symbol_name, symbol.st_value, symbol.st_size, hash_section_idx_to_name[symbol.st_shndx], data_type, bind_type );
 	}
 }
 
@@ -475,6 +597,17 @@ int main ( int argc, char **argv )
 		else
 		{
 			find_elf_string( fin, &elf_header, ".rodata", g_opts.search_pattern, g_opts.exact_match );
+		}
+	}
+	else if ( DUMP_SYMBOL == g_opts.utility )
+	{
+		if ( g_opts.section_name )
+		{
+			dump_elf_symbol( fin, &elf_header, g_opts.section_name );
+		}
+		else
+		{
+			dump_elf_symbol( fin, &elf_header, ".symtab" );
 		}
 	}
 
