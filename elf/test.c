@@ -8,6 +8,9 @@ __attribute__((weak)) extern int g_x_weak;
 // weak symbol
 extern int g_x_weak;
 
+// local symbol
+static int g_local;
+
 // locate in .bss
 int g_x_bss = 0;
 int g_arr_bss[10] = {0};
@@ -15,6 +18,8 @@ int g_arr_bss[10] = {0};
 // locate in .data
 int g_x_data = 0xf5f6f7f8;
 const int g_x_data_const = 0xf1f2f3f4;
+double g_f_arr[3] = { 0.001, 0.002, 0.003 };
+double g_f = 1.234;
 
 // locate in .rodata
 char *global_str = "string in global";
@@ -31,8 +36,10 @@ int f2 ( int x )
 __attribute__((noinline)) 
 int f1 ( int x )
 {
+	static int f1_sx = 1;
 	int y = x + 1;
 	char *local_str = "string in f1\nafter\tnewline";
+	printf( "%d\n", f1_sx++ );
 	return y;
 }
 

@@ -15,6 +15,8 @@ typedef enum
 	FIND_SYMBOL,
 	FIND_FUNCTION,
 
+	MODIFY_CODE
+
 } hack_utility;
 
 typedef enum 
@@ -32,10 +34,12 @@ typedef struct
 
 	machine_type machine;
 
+	// use to search in ELF 
 	char *elf_file;
 	char *section_name;
 	char *search_pattern;
 
+	// use to dump .text to readible asm
 	char *addr_name_map;
 	char *reg_name_map;
 
@@ -43,6 +47,11 @@ typedef struct
 
 	bool exact_match;
 	bool debug;
+
+	// use to modify code
+	size_t n_hex;
+	unsigned long offset;
+	char *lsb_hex_bytes; 
 } opt_t;
 
 extern opt_t g_opts;
