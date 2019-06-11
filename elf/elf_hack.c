@@ -5,9 +5,23 @@
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
+#include <search.h>
 #include <elf.h>
 
 #include "opts.h"
+
+typedef union {
+	unsigned char hex[8];
+	char ch;
+	short int h_inum; // half-word num
+	short unsigned int h_unum; // half-word num
+	int w_inum; // word num
+	unsigned int w_unum; 
+	long int g_inum; // giant-word num
+	long unsigned int g_unum; 
+	float w_float;
+	double g_float;
+} data_buf;
 
 void print_info ( char *fmt, ... );
 void print_error ( char *fmt, ... );
@@ -22,8 +36,10 @@ Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name );
 void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
+void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 
 char **hash_section_idx_to_name = NULL;
+Elf64_Shdr **hash_section_idx_to_sh_header = NULL;
 
 void print_info ( char *fmt, ... )
 {
@@ -208,18 +224,38 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	Elf64_Shdr shstrtab;
 	read_section_header( fin, elf_header, elf_header->e_shstrndx, &shstrtab );
 
+	// read section names
 	char *name_buf = malloc ( shstrtab.sh_size );
 	read_section_data( fin, &shstrtab, (void *)name_buf );
 
+	// create hash to map name to section header
 	hash_section_idx_to_name = (char **) malloc ( sizeof(char *) * elf_header->e_shnum );
-	Elf64_Shdr sh_header;
+	hash_section_idx_to_sh_header = (Elf64_Shdr **) malloc ( sizeof(Elf64_Shdr *) * elf_header->e_shnum );
+	ENTRY e, *ep;
+	hcreate( elf_header->e_shnum );
+
+	Elf64_Shdr *sh_header;
 	print_info( "sections (name size virtual_addr):\n" );
 	for ( int i = 0; i < elf_header->e_shnum; ++i )
 	{
-		read_section_header( fin, elf_header, i, &sh_header );
-		print_info( " %-30s %-10lu %-#10lx\n", name_buf + sh_header.sh_name, sh_header.sh_size, sh_header.sh_addr );
-		hash_section_idx_to_name[i] = (char *) malloc ( strlen(name_buf + sh_header.sh_name) + 1 );
-		strcpy( hash_section_idx_to_name[i], name_buf + sh_header.sh_name );
+		// read section and keep in hash table 
+		sh_header = (Elf64_Shdr *) malloc ( sizeof(Elf64_Shdr) );
+		read_section_header( fin, elf_header, i, sh_header );
+		hash_section_idx_to_sh_header[i] = sh_header;
+		print_info( " %-30s %-10lu %-#10lx\n", name_buf + sh_header->sh_name, sh_header->sh_size, sh_header->sh_addr );
+
+		// create map section index to section name 
+		hash_section_idx_to_name[i] = (char *) malloc ( strlen(name_buf + sh_header->sh_name) + 1 );
+		strcpy( hash_section_idx_to_name[i], name_buf + sh_header->sh_name );
+
+		// create map section name to file offset
+		e.key = hash_section_idx_to_name[i];
+		e.data = (void *) sh_header;
+		ep = hsearch( e, ENTER );
+		if ( !ep )
+		{
+			print_error( "hsearch record key %s fail\n", e.key );
+		}
 	}
 
 	free( name_buf );
@@ -301,7 +337,8 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 			if ( !start_str )
 			{
 				start_str = true;
-				printf( "%#lx ", sh_header.sh_addr + i );
+				// print virtual addr and file read offset
+				printf( "%#lx %#lx ", sh_header.sh_addr + i, sh_header.sh_offset + i );
 			}
 			printf( "%c", ch );
 		}
@@ -339,7 +376,7 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 				if ( !start_nonstr )
 				{
 					start_nonstr = true;
-					printf( "%#lx", sh_header.sh_addr + i );
+					printf( "(non-string) %#lx %#lx ", sh_header.sh_addr + i, sh_header.sh_offset + i );
 				}
 				printf( " %#2hhx", ch );
 			}
@@ -392,26 +429,48 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 	Elf64_Off origin_file_pos;
 	size_t n_symbol = symtab_header.sh_size / symtab_header.sh_entsize;
 	Elf64_Sym symbol;
+	Elf64_Shdr *belong_sh_header;
+	Elf64_Half bss_section_idx = search_section_idx ( fin, elf_header, ".bss" );
 	char symbol_name[BUFSIZ];
 	char *bind_type;
 	char *data_type;
+	char *belong_section_name;
+	data_buf num_buf;
 	seek_file( fin, symtab_header.sh_offset );
+	ENTRY e, *ep;
 	for ( size_t i = 0; i < n_symbol; ++i )
 	{
+		// read symbol entry from symtab
 		read_n_byte( fin, symtab_header.sh_entsize, &symbol );
 		origin_file_pos = ftell( fin );
+
+		// read symbol name from strtab
 		seek_file( fin, strtab_header.sh_offset + symbol.st_name );
 		read_string( fin, symbol_name );
+
+		// back to symtab file offset
 		seek_file( fin, origin_file_pos );
 		
 		switch( ELF64_ST_TYPE( symbol.st_info ) )
 		{
+			case STT_NOTYPE:
+				data_type = "none";
+				break;
+				
 			case STT_FUNC:
 				data_type = "function";
 				break;
 
 			case STT_OBJECT:
 				data_type = "data";
+				break;
+
+			case STT_FILE:
+				data_type = "obj_name";
+				break;
+
+			case STT_SECTION:
+				data_type = "section";
 				break;
 
 			default:
@@ -430,6 +489,10 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 				bind_type = "global";
 				break;
 
+			case STB_WEAK:
+				bind_type = "weak";
+				break;
+
 			default:
 				bind_type = "?";
 				break;
@@ -438,11 +501,99 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 
 		if ( symbol.st_shndx >= elf_header->e_shnum )
 		{
-			continue;
+			switch( symbol.st_shndx )
+			{
+				case SHN_ABS:
+					belong_section_name = "ABS";
+					break;
+
+				case SHN_UNDEF:
+					belong_section_name = "UND";
+					break;
+
+				case SHN_COMMON:
+					belong_section_name = "COMMON";
+					break;
+
+				default:
+					belong_section_name = "?";
+					break;
+			}
+		}
+		else
+		{
+			belong_section_name = hash_section_idx_to_name[symbol.st_shndx];
 		}
 
-		printf( "%-30s virtual_addr=%#lx size=%lu section=%s type=%s bind=%s\n", symbol_name, symbol.st_value, symbol.st_size, hash_section_idx_to_name[symbol.st_shndx], data_type, bind_type );
+		printf( "%#-10lx size=%-6lu section=%-20s type=%-10s bind=%-10s %-30s", symbol.st_value, symbol.st_size, belong_section_name, data_type, bind_type, symbol_name );
+		if ( (STT_OBJECT == ELF64_ST_TYPE( symbol.st_info )) && (symbol.st_shndx != bss_section_idx) && (symbol.st_size > 0) )
+		{
+			// hash section
+			origin_file_pos = ftell( fin );
+			belong_sh_header = hash_section_idx_to_sh_header[symbol.st_shndx];
+
+			// read symbol from belong section
+			read_symbol_data ( fin, belong_sh_header, &symbol, &num_buf );
+
+			// dereference data
+			printf( " hex=" );
+			for ( int j = 0; j < symbol.st_size; ++j )
+			{
+				printf( " %#2hhx", num_buf.hex[j] );
+			}
+
+			printf( " string= " );
+			for ( int j = 0; j < symbol.st_size; ++j )
+			{
+				if ( isprint( num_buf.hex[j] ) )
+				{
+					printf( "%c", num_buf.hex[j] );
+				}
+				else if ( '\t' == num_buf.hex[j] )
+				{
+					printf( "\\t" );
+				}
+				else if ( '\n' == num_buf.hex[j] )
+				{
+					printf( "\\n" );
+				}
+				else
+				{
+					printf( "*" );
+				}
+			}
+
+			if ( 4 == symbol.st_size )
+			{
+				printf( " int= " );
+				printf( "%d %u", num_buf.w_inum, num_buf.w_unum );
+				printf( " float= " );
+				printf( "%.7e", num_buf.w_float );
+			}
+
+			if ( 8 == symbol.st_size )
+			{
+				printf( " long int= " );
+				printf( "%ld %lu", num_buf.g_inum, num_buf.g_unum );
+				printf( " double= " );
+				printf( "%.15le", num_buf.g_float );
+			}
+
+			printf( "\n" );
+
+			seek_file( fin, origin_file_pos );
+		}
+		else
+		{
+			printf( "\n" );
+		}
 	}
+}
+
+void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *symbol, data_buf *buf )
+{
+	seek_file( fin, sh_header->sh_offset + (symbol->st_value - sh_header->sh_addr) );
+	read_n_byte( fin, symbol->st_size, (void *) buf );
 }
 
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match )
@@ -517,7 +668,7 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 
 			if ( ('\0' == ch) && (str_pos == match_pos) )
 			{
-				printf( "exact match '%s' at %#lx in section %s\n", search_pattern, str_pos, section_name );
+				printf( "exact match '%s' at %#lx %#lx in section %s\n", search_pattern, str_pos, str_file_pos, section_name );
 				is_find_exact = true;
 			}
 			else
@@ -546,11 +697,11 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 				
 				if ( exact_match )
 				{
-					print_info( "partial match '%s' at %#lx in section %s (full-str = %s)\n", search_pattern, str_pos, section_name, full_str );
+					print_info( "partial match '%s' at %#lx %#lx in section %s (full-str = '%s')\n", search_pattern, str_pos, str_file_pos, section_name, full_str );
 				}
 				else
 				{
-					printf( "partial match '%s' at %#lx in section %s (full-str = %s)\n", search_pattern, str_pos, section_name, full_str );
+					printf( "partial match '%s' at %#lx %#lx in section %s (full-str = '%s')\n", search_pattern, str_pos, str_file_pos, section_name, full_str );
 				}
 
 			}
