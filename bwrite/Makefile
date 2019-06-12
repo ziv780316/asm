@@ -29,7 +29,7 @@ MOVE       = mv -f
 #=================================================
 BIN_DIR       	  := bin
 LIB_DIR       	  := library
-TARGET            := elf_hack test 
+TARGET            := bwrite test 
 
 #=================================================
 # Compile implicit rules
@@ -45,7 +45,7 @@ TARGET            := elf_hack test
 #=================================================
 # Target rules
 #=================================================
-elf_hack: elf_hack.o opts.o 
+bwrite: bwrite.o opts.o 
 	cd $(LIB_DIR);\
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)

@@ -558,12 +558,13 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 			belong_section_name = hash_section_idx_to_name[symbol.st_shndx];
 		}
 
-		printf( "%0#10lx size=%-6lu section=%-10s type=%-10s bind=%-10s %-30s", symbol.st_value, symbol.st_size, belong_section_name, data_type, bind_type, symbol_name );
 		if ( (STT_OBJECT == ELF64_ST_TYPE( symbol.st_info )) && (symbol.st_shndx != bss_section_idx) && (symbol.st_size > 0) )
 		{
 			// hash section
 			belong_sh_header = hash_section_idx_to_sh_header[symbol.st_shndx];
 			sym_data_pos = belong_sh_header->sh_offset + (symbol.st_value - belong_sh_header->sh_addr);
+
+			printf( "%0#10lx %0#10lx size=%-6lu section=%-10s type=%-10s bind=%-10s %-30s", symbol.st_value, sym_data_pos, symbol.st_size, belong_section_name, data_type, bind_type, symbol_name );
 
 			// dereference data
 			printf( "\n%-10s", "+ hex=" );
@@ -655,6 +656,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 		}
 		else
 		{
+			printf( "%0#10lx size=%-6lu section=%-10s type=%-10s bind=%-10s %-30s", symbol.st_value, symbol.st_size, belong_section_name, data_type, bind_type, symbol_name );
 			printf( "\n" );
 		}
 
@@ -783,26 +785,6 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 	}
 }
 
-void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes )
-{
-	struct stat st;
-	if ( -1 == fstat( fileno(fin), &st ) )
-	{
-		print_error( "[Error] fstat fail --> %s\n", strerror(errno) );
-	}
-
-	if ( offset + n_hex > st.st_size )
-	{
-		print_error( "[Error] final write offset=%lu beyond file size=%lu\n", offset + n_hex, st.st_size );
-	}
-
-	seek_file( fin, offset );
-	write_n_byte( fin, n_hex, lsb_hex_bytes );
-
-	// sync to disk
-	fsync( fileno(fin) );
-}
-
 int main ( int argc, char **argv )
 {
 	// parse command line arguments
@@ -852,10 +834,6 @@ int main ( int argc, char **argv )
 		{
 			dump_elf_symbol( fin, &elf_header, ".symtab" );
 		}
-	}
-	else if ( MODIFY_CODE == g_opts.utility )
-	{
-		modify_elf_code( fin, g_opts.offset, g_opts.n_hex, g_opts.lsb_hex_bytes );
 	}
 
 	return EXIT_SUCCESS;

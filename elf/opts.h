@@ -15,8 +15,6 @@ typedef enum
 	FIND_SYMBOL,
 	FIND_FUNCTION,
 
-	MODIFY_CODE
-
 } hack_utility;
 
 typedef enum 
@@ -47,11 +45,6 @@ typedef struct
 
 	bool exact_match;
 	bool debug;
-
-	// use to modify code
-	size_t n_hex;
-	unsigned long offset;
-	char *lsb_hex_bytes; 
 } opt_t;
 
 extern opt_t g_opts;

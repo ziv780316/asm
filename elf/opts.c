@@ -21,11 +21,7 @@ opt_t g_opts = {
 	.dump_string_width = 30,
 
 	.exact_match = true,
-	.debug = false,
-
-	.n_hex = 0,
-	.offset = 0,
-	.lsb_hex_bytes = NULL
+	.debug = false
 };
 
 void show_help ()
@@ -43,10 +39,6 @@ void show_help ()
 		"\n"
 		"[Dump Function]\n"
 		"  elf_hack -e <elf_file> -u dump_function -f <function>\n"
-		"\n"
-		"[Modify Code]\n"
-		"  elf_hack -e <elf_file> -u modify_code -o <0xoffset> -x <MSB hex bytes>\n"
-		"  elf_hack -e <elf_file> -u modify_code -o <0xoffset> -l <LSB hex bytes>\n"
 		"\n"
 		"[String Search]\n"
 		"  elf_hack -e <elf_file> -u find_string -p <pattern>\n"
@@ -90,9 +82,6 @@ void parse_cmd_options ( int argc, char **argv )
 			{"pattern", required_argument, 0, 'p'},
 			{"width", required_argument, 0, 'w'},
 			{"table", required_argument, 0, 'b'},
-			{"offset", required_argument, 0, 'o'},
-			{"msb_hex_bytes", required_argument, 0, 'x'},
-			{"lsb_hex_bytes", required_argument, 0, 'l'},
 
 			{0, 0, 0, 0}
 		};
@@ -100,7 +89,7 @@ void parse_cmd_options ( int argc, char **argv )
 		// getopt_long stores the option index here
 		int option_index = 0;
 
-		c = getopt_long( argc, argv, "htdu:m:e:s:p:w:b:o:x:l:", long_options, &option_index );
+		c = getopt_long( argc, argv, "htdu:m:e:s:p:w:b:", long_options, &option_index );
 
 		// detect the end of the options
 		if ( -1 == c )
@@ -148,10 +137,6 @@ void parse_cmd_options ( int argc, char **argv )
 				{
 					g_opts.utility = FIND_FUNCTION;
 				}
-				else if ( 0 == strcmp(optarg, "modify_code") )
-				{
-					g_opts.utility = MODIFY_CODE;
-				}
 				else
 				{
 					fprintf( stderr, "[Error] unknown utility '%s'\n", optarg );
@@ -188,47 +173,6 @@ void parse_cmd_options ( int argc, char **argv )
 				{
 					fprintf( stderr, "[Error] unknown machine '%s'\n", optarg );
 					abort();
-				}
-				break;
-
-			case 'o':
-				{
-					char *endptr;
-					g_opts.offset = strtol( optarg, &endptr, 16 );
-					if ( ERANGE == errno )
-					{
-						fprintf( stderr, "[Error] convert offset %s fail --> %s\n", optarg, strerror(errno) );
-					}
-				}
-				break;
-
-			// msb bytes input
-			case 'x':
-				{
-					char *pcode = optarg;
-					size_t n_hex = strlen( pcode );
-					g_opts.n_hex = n_hex;
-					g_opts.lsb_hex_bytes = (char *) malloc ( n_hex );
-					for ( int i = 0; i < n_hex; ++i )
-					{
-						// store from lsb to msb
-						g_opts.lsb_hex_bytes[n_hex - 1 - i] = pcode[i];
-					}
-				}
-				break;
-
-			// lsb bytes input
-			case 'l':
-				{
-					char *pcode = optarg;
-					size_t n_hex = strlen( pcode );
-					g_opts.n_hex = n_hex;
-					g_opts.lsb_hex_bytes = (char *) malloc ( n_hex );
-					for ( int i = 0; i < n_hex; ++i )
-					{
-						// store from lsb to msb
-						g_opts.lsb_hex_bytes[i] = pcode[i];
-					}
 				}
 				break;
 
