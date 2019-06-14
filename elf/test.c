@@ -24,6 +24,7 @@ double g_f = 1.234;
 // locate in .rodata
 char *global_str = "string in global";
 char global_str_non[] = { 'n', 'o', 'n', '-', 'n', 'u', 'l', 'l', ' ', 't', 'e', 'r', 'm', 'i', 'n', 'a', 't', 'e' };
+char g_ch = 'a';
 
 __attribute__((noinline)) 
 int f2 ( int x )
@@ -31,6 +32,36 @@ int f2 ( int x )
 	int y = f_weak( x ) + g_x_weak;
 	char *local_str = "string in f2";
 	return y;
+}
+
+
+// partial inline optimization
+__attribute__((always_inline, optimize("partial-inlining")))
+inline int f3 ( int x )
+{
+	if ( x > 3 )
+	{
+		return 0;
+	}
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	x = f2(x);
+	return x;
 }
 
 __attribute__((noinline)) 
@@ -47,6 +78,19 @@ int main ( int argc, char **argv )
 {
 	int x = 1;
 	x = f1( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
+	x = f3( x );
 	printf ( "%d\n", x );
 
 	return EXIT_SUCCESS;

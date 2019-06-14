@@ -484,7 +484,14 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 				break;
 				
 			case STT_FUNC:
-				data_type = "function";
+				if ( strstr(symbol_name, ".part.") )
+				{
+					data_type = "partial_inline_function";
+				}
+				else
+				{
+					data_type = "function";
+				}
 				break;
 
 			case STT_OBJECT:
@@ -510,7 +517,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 			case STB_LOCAL:
 				if ( (STT_OBJECT == ELF64_ST_TYPE(symbol.st_info)) && strstr(symbol_name, ".") )
 				{
-					bind_type = "local_f_static";
+					bind_type = "static_var_in_function";
 				}
 				else
 				{
@@ -635,23 +642,44 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 			}
 
 			// read symbol from belong section
-			read_symbol_data ( fin, belong_sh_header, &symbol, &num_buf );
-			if ( 4 == symbol.st_size )
+			if ( symbol.st_size <= 8 )
 			{
+				read_symbol_data ( fin, belong_sh_header, &symbol, &num_buf );
+				if ( 1 == symbol.st_size )
+				{
+					printf( "\n%-10s", "+ char hex= " );
+					printf( "%c %hhx", num_buf.ch, num_buf.hex[0] );
+				}
+				else if ( 2 == symbol.st_size )
+				{
+					printf( "\n%-10s", "+ short int= " );
+					printf( "%hd %hu", num_buf.h_inum, num_buf.h_unum );
+				}
+				else if ( 4 == symbol.st_size )
+				{
 
-				printf( "\n%-10s", "+ int=" );
-				printf( "%d %u", num_buf.w_inum, num_buf.w_unum );
-				printf( "\n%-10s", "+ float=" );
-				printf( "%.7e", num_buf.w_float );
-			}
-			else if ( 8 == symbol.st_size )
-			{
-				printf( "\n%-10s", "+ long int=" );
-				printf( "%ld %lu", num_buf.g_inum, num_buf.g_unum );
-				printf( "\n%-10s", "+ double=" );
-				printf( "%.15le", num_buf.g_float );
+					printf( "\n%-10s", "+ int= " );
+					printf( "%d %u", num_buf.w_inum, num_buf.w_unum );
+					printf( "\n%-10s", "+ float= " );
+					printf( "%.7e", num_buf.w_float );
+				}
+				else if ( 8 == symbol.st_size )
+				{
+					printf( "\n%-10s", "+ long int= " );
+					printf( "%ld %lu", num_buf.g_inum, num_buf.g_unum );
+					printf( "\n%-10s", "+ double= " );
+					printf( "%.15le", num_buf.g_float );
+				}
 			}
 
+			printf( "\n" );
+		}
+		else if ( STT_FUNC == ELF64_ST_TYPE( symbol.st_info ) )
+		{
+			// hash section
+			belong_sh_header = hash_section_idx_to_sh_header[symbol.st_shndx];
+			sym_data_pos = belong_sh_header->sh_offset + (symbol.st_value - belong_sh_header->sh_addr);
+			printf( "%0#10lx %0#10lx size=%-6lu section=%-10s type=%-10s bind=%-10s %-30s", symbol.st_value, sym_data_pos, symbol.st_size, belong_section_name, data_type, bind_type, symbol_name );
 			printf( "\n" );
 		}
 		else
@@ -791,7 +819,7 @@ int main ( int argc, char **argv )
 	parse_cmd_options( argc, argv );
 
 	// read ELF header
-	FILE *fin = fopen( g_opts.elf_file, "r+" );
+	FILE *fin = fopen( g_opts.elf_file, "r" );
 	if ( !fin )
 	{
 		print_error( "[Error] open ELF file '%s' fail --> %s\n", g_opts.elf_file, strerror(errno) );
@@ -810,6 +838,7 @@ int main ( int argc, char **argv )
 		else
 		{
 			dump_elf_string( fin, &elf_header, ".rodata" );
+			dump_elf_string( fin, &elf_header, ".data" );
 		}
 
 	}
@@ -822,6 +851,7 @@ int main ( int argc, char **argv )
 		else
 		{
 			find_elf_string( fin, &elf_header, ".rodata", g_opts.search_pattern, g_opts.exact_match );
+			find_elf_string( fin, &elf_header, ".data", g_opts.search_pattern, g_opts.exact_match );
 		}
 	}
 	else if ( DUMP_SYMBOL == g_opts.utility )
@@ -834,6 +864,9 @@ int main ( int argc, char **argv )
 		{
 			dump_elf_symbol( fin, &elf_header, ".symtab" );
 		}
+	}
+	else if ( FIND_SYMBOL == g_opts.utility )
+	{
 	}
 
 	return EXIT_SUCCESS;
