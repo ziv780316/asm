@@ -5,7 +5,7 @@
 
 typedef enum 
 {
-	UTILITY_NONE,
+	DUMP_ELF_INFO,
 
 	DUMP_STRING,
 	DUMP_SYMBOL,

@@ -284,6 +284,8 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 		}
 	}
 
+	// read .dynamic
+
 	free( name_buf );
 }
 
@@ -574,10 +576,6 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 					belong_section_name = "ABS";
 					break;
 
-				case SHN_UNDEF:
-					belong_section_name = "UND";
-					break;
-
 				case SHN_COMMON:
 					belong_section_name = "COMMON";
 					break;
@@ -586,6 +584,10 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 					belong_section_name = "?";
 					break;
 			}
+		}
+		else if ( 0 == symbol.st_shndx )
+		{
+			belong_section_name = "UND";
 		}
 		else
 		{
@@ -853,6 +855,10 @@ int main ( int argc, char **argv )
 	}
 
 	Elf64_Ehdr elf_header;
+	if ( DUMP_ELF_INFO == g_opts.utility )
+	{
+		g_opts.debug = true; // enable print_info
+	}
 	read_elf_header( fin, &elf_header );
 
 	// start to hack

@@ -26,6 +26,10 @@ char *global_str = "string in global";
 char global_str_non[] = { 'n', 'o', 'n', '-', 'n', 'u', 'l', 'l', ' ', 't', 'e', 'r', 'm', 'i', 'n', 'a', 't', 'e' };
 char g_ch = 'a';
 
+// dynamic symbol
+extern int g_dyn_global;
+extern int f_dyn ( int x );
+
 __attribute__((noinline)) 
 int f2 ( int x )
 {
@@ -79,19 +83,8 @@ int main ( int argc, char **argv )
 	int x = 1;
 	x = f1( x );
 	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	x = f3( x );
-	printf ( "%d\n", x );
+	x = f_dyn( x );
+	printf ( "%d %d\n", x, g_dyn_global );
 
 	return EXIT_SUCCESS;
 }

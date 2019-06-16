@@ -7,7 +7,7 @@
 
 
 opt_t g_opts = {
-	.utility = UTILITY_NONE,
+	.utility = DUMP_ELF_INFO,
 
 	.machine = MACHINE_X86_64,
 
@@ -30,6 +30,9 @@ void show_help ()
 		"*              ELF HACK              *\n"
 		"*------------------------------------*\n" 
 		"[Usage] hack ELF\n"
+		"\n"
+		"[Dump ELF Info]\n"
+		"  elf_hack -e <elf_file>\n"
 		"\n"
 		"[Dump String]\n"
 		"  elf_hack -e <elf_file> -u dump_string -s <.section> -w <width>\n"
@@ -198,11 +201,6 @@ void parse_cmd_options ( int argc, char **argv )
 	}
 
 	// check mode
-	if ( UTILITY_NONE == g_opts.utility )
-	{
-		fprintf( stderr, "please input -u <utility>\n" );
-		exit( EXIT_FAILURE );
-	}
 	if ( NULL == g_opts.elf_file )
 	{
 		fprintf( stderr, "please input -e <ELF file>\n" );

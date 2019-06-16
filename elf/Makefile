@@ -42,6 +42,10 @@ TARGET            := elf_hack test
 	$(CC) -S $< -o $@ $(CFLAGS) $(INCLUDE)
 	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
 
+lib%.so:%.c
+	$(CC) -shared $< -o $@ $(CFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+
 #=================================================
 # Target rules
 #=================================================
@@ -50,8 +54,8 @@ elf_hack: elf_hack.o opts.o
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)
 
-test: test.o test.s
-	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) $(LIBS)
+test: test.o test.s libdyn.so
+	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) -L$(LIB_DIR) -ldyn
 	$(MOVE) $@ $(BIN_DIR)
 
 #=================================================
