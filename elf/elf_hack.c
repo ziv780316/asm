@@ -15,6 +15,7 @@
 
 #define LINE_WIDTH 30
 
+
 typedef union {
 	unsigned char hex[8];
 	char ch;
@@ -41,7 +42,7 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header );
 Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name );
 void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
-void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
+void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
 
@@ -236,8 +237,8 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	print_info( "program header entry size = %hu\n", elf_header->e_phentsize );
 	print_info( "section header table entry num = %hu\n", elf_header->e_shnum );
 	print_info( "program header table entry num = %hu\n", elf_header->e_phnum );
-	print_info( "section header table file offset = %#lx\n", elf_header->e_shoff );
-	print_info( "program header table file offset = %#lx\n", elf_header->e_phoff );
+	print_info( "section header table file offset = %0#10lx\n", elf_header->e_shoff );
+	print_info( "program header table file offset = %0#10lx\n", elf_header->e_phoff );
 
 	if ( SHN_UNDEF == elf_header->e_shstrndx )
 	{
@@ -267,7 +268,7 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 		sh_header = (Elf64_Shdr *) malloc ( sizeof(Elf64_Shdr) );
 		read_section_header( fin, elf_header, i, sh_header );
 		hash_section_idx_to_sh_header[i] = sh_header;
-		print_info( " %-30s %-10lu %-#10lx\n", name_buf + sh_header->sh_name, sh_header->sh_size, sh_header->sh_addr );
+		print_info( " %-30s %-10lu %0#10lx\n", name_buf + sh_header->sh_name, sh_header->sh_size, sh_header->sh_addr );
 
 		// create map section index to section name 
 		hash_section_idx_to_name[i] = (char *) malloc ( strlen(name_buf + sh_header->sh_name) + 1 );
@@ -423,7 +424,7 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 //  Elf64_Addr	st_value;		/* Symbol value */
 //  Elf64_Xword	st_size;		/* Symbol size */
 //} Elf64_Sym;
-void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
+void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match )
 {
 	// read symtab section
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
@@ -461,6 +462,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 	char *bind_type;
 	char *data_type;
 	char *belong_section_name;
+	bool is_match_pattern;
 	int ch;
 	data_buf num_buf;
 	seek_file( fin, symtab_header.sh_offset );
@@ -476,6 +478,31 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 
 		// back to symtab file offset
 		seek_file( fin, origin_file_pos );
+
+		// check name match search pattern if necessary
+		if ( NULL != search_pattern )
+		{
+			is_match_pattern = false;
+			if ( exact_match )
+			{
+				if ( 0 == strcmp( symbol_name, search_pattern ) )
+				{
+					is_match_pattern = true;
+				}
+			}
+			else
+			{
+				if ( NULL != strstr( symbol_name, search_pattern ) )
+				{
+					is_match_pattern = true;
+				}
+			}
+
+			if ( !is_match_pattern )
+			{
+				continue;
+			}
+		}
 		
 		switch( ELF64_ST_TYPE( symbol.st_info ) )
 		{
@@ -858,15 +885,23 @@ int main ( int argc, char **argv )
 	{
 		if ( g_opts.section_name )
 		{
-			dump_elf_symbol( fin, &elf_header, g_opts.section_name );
+			dump_elf_symbol( fin, &elf_header, g_opts.section_name, NULL, false );
 		}
 		else
 		{
-			dump_elf_symbol( fin, &elf_header, ".symtab" );
+			dump_elf_symbol( fin, &elf_header, ".symtab", NULL, false );
 		}
 	}
 	else if ( FIND_SYMBOL == g_opts.utility )
 	{
+		if ( g_opts.section_name )
+		{
+			dump_elf_symbol( fin, &elf_header, g_opts.section_name, g_opts.search_pattern, g_opts.exact_match );
+		}
+		else
+		{
+			dump_elf_symbol( fin, &elf_header, ".symtab", g_opts.search_pattern, g_opts.exact_match );
+		}
 	}
 
 	return EXIT_SUCCESS;
