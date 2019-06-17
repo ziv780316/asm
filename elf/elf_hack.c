@@ -240,17 +240,66 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	print_info( "section header table file offset = %0#10lx\n", elf_header->e_shoff );
 	print_info( "program header table file offset = %0#10lx\n", elf_header->e_phoff );
 
+	// read dynamic linker path
+	Elf64_Half interp_section_idx = search_section_idx ( fin, elf_header, ".interp" );
+	Elf64_Shdr interp_header;
+	char dynamic_linker_path[BUFSIZ];
+	read_section_header( fin, elf_header, interp_section_idx, &interp_header );
+	seek_file( fin, interp_header.sh_offset );
+	read_string( fin, dynamic_linker_path );
+	print_info( "dynamic linker = %s\n", dynamic_linker_path );
+
+	// read necessarily dynamic library
+	Elf64_Half dynamic_section_idx = search_section_idx ( fin, elf_header, ".dynamic" );
+	Elf64_Half dynstr_section_idx = search_section_idx ( fin, elf_header, ".dynstr" );
+	Elf64_Shdr dynamic_header;
+	Elf64_Shdr dynstr_header;
+	read_section_header( fin, elf_header, dynamic_section_idx, &dynamic_header );
+	read_section_header( fin, elf_header, dynstr_section_idx, &dynstr_header );
+	if ( dynamic_header.sh_entsize != sizeof( Elf64_Dyn ) )
+	{
+		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Dyn)=%lu\n", ".dynamic", dynamic_header.sh_entsize, sizeof(Elf64_Dyn) );
+	}
+	if ( 0 != (dynamic_header.sh_size % sizeof( Elf64_Dyn )) )
+	{
+		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Dyn)=%lu != 0\n", "dynamic", dynamic_header.sh_entsize, sizeof(Elf64_Dyn) );
+	}
+
+	size_t n_dyn_ent = dynamic_header.sh_size / dynamic_header.sh_entsize;
+	Elf64_Off origin_file_pos;
+	Elf64_Off dyn_str_offset;
+	Elf64_Dyn dynamic_ent;
+	char necessarily_so[BUFSIZ];
+	seek_file( fin, dynamic_header.sh_offset );
+	print_info( "necessarily .so =\n" );
+	for ( size_t i = 0; i < n_dyn_ent; ++i )
+	{
+		read_n_byte( fin, dynamic_header.sh_entsize, &dynamic_ent );
+		origin_file_pos = ftell( fin );
+		switch ( dynamic_ent.d_tag )
+		{
+			case DT_NEEDED: 
+				dyn_str_offset = dynamic_ent.d_un.d_val;
+				seek_file( fin, dynstr_header.sh_offset + dyn_str_offset );
+				read_string( fin, necessarily_so );
+				seek_file( fin, origin_file_pos );
+				print_info( "+ %s\n", necessarily_so );
+				break;
+
+			default:
+				break;
+		}
+	}
+
+	// print all section name, check .shstrtab exist
 	if ( SHN_UNDEF == elf_header->e_shstrndx )
 	{
 		print_error( "[Error] cannot find section .shstrtab\n" );
 	}
 	print_info( "section header string table index = %hu\n", elf_header->e_shstrndx );
-
-	// print all section name
 	Elf64_Shdr shstrtab;
 	read_section_header( fin, elf_header, elf_header->e_shstrndx, &shstrtab );
 
-	// read section names
 	char *name_buf = malloc ( shstrtab.sh_size );
 	read_section_data( fin, &shstrtab, (void *)name_buf );
 
@@ -283,8 +332,6 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 			print_error( "hsearch record key %s fail\n", e.key );
 		}
 	}
-
-	// read .dynamic
 
 	free( name_buf );
 }
