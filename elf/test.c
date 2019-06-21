@@ -9,7 +9,8 @@ __attribute__((weak)) extern int g_x_weak;
 extern int g_x_weak;
 
 // local symbol
-static int g_local;
+static int g_local; // this will not generate symbol
+int g_local2;
 
 // locate in .bss
 int g_x_bss = 0;
@@ -28,7 +29,7 @@ char g_ch = 'a';
 
 // dynamic symbol
 extern int g_dyn_global;
-extern int f_dyn ( int x );
+extern int f_dyn_export ( int x );
 
 __attribute__((noinline)) 
 int f2 ( int x )
@@ -83,7 +84,7 @@ int main ( int argc, char **argv )
 	int x = 1;
 	x = f1( x );
 	x = f3( x );
-	x = f_dyn( x );
+	x = f_dyn_export( x );
 	printf ( "%d %d\n", x, g_dyn_global );
 
 	return EXIT_SUCCESS;

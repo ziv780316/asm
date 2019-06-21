@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
-#include <search.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -240,47 +239,61 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	print_info( "section header table file offset = %0#10lx\n", elf_header->e_shoff );
 	print_info( "program header table file offset = %0#10lx\n", elf_header->e_phoff );
 
+	// cache all section
+	hash_section_idx_to_sh_header = (Elf64_Shdr **) malloc ( sizeof(Elf64_Shdr *) * elf_header->e_shnum );
+	Elf64_Shdr *sh_header;
+	for ( int i = 0; i < elf_header->e_shnum; ++i )
+	{
+		// read section and keep in hash table 
+		sh_header = (Elf64_Shdr *) malloc ( sizeof(Elf64_Shdr) );
+		read_section_header( fin, elf_header, i, sh_header );
+		hash_section_idx_to_sh_header[i] = sh_header;
+	}
+
 	// read dynamic linker path
-	Elf64_Half interp_section_idx = search_section_idx ( fin, elf_header, ".interp" );
-	Elf64_Shdr interp_header;
-	char dynamic_linker_path[BUFSIZ];
-	read_section_header( fin, elf_header, interp_section_idx, &interp_header );
-	seek_file( fin, interp_header.sh_offset );
-	read_string( fin, dynamic_linker_path );
-	print_info( "dynamic linker = %s\n", dynamic_linker_path );
+	if ( ET_EXEC == elf_header->e_type )
+	{
+		Elf64_Half interp_section_idx = search_section_idx ( fin, elf_header, ".interp" );
+		Elf64_Shdr *interp_header;
+		char dynamic_linker_path[BUFSIZ];
+		interp_header = hash_section_idx_to_sh_header[interp_section_idx];
+		seek_file( fin, interp_header->sh_offset );
+		read_string( fin, dynamic_linker_path );
+		print_info( "dynamic linker = %s\n", dynamic_linker_path );
+	}
 
 	// read necessarily dynamic library
 	Elf64_Half dynamic_section_idx = search_section_idx ( fin, elf_header, ".dynamic" );
 	Elf64_Half dynstr_section_idx = search_section_idx ( fin, elf_header, ".dynstr" );
-	Elf64_Shdr dynamic_header;
-	Elf64_Shdr dynstr_header;
-	read_section_header( fin, elf_header, dynamic_section_idx, &dynamic_header );
-	read_section_header( fin, elf_header, dynstr_section_idx, &dynstr_header );
-	if ( dynamic_header.sh_entsize != sizeof( Elf64_Dyn ) )
+	Elf64_Shdr *dynamic_header;
+	Elf64_Shdr *dynstr_header;
+	dynamic_header = hash_section_idx_to_sh_header[dynamic_section_idx];
+	dynstr_header = hash_section_idx_to_sh_header[dynstr_section_idx];
+	if ( dynamic_header->sh_entsize != sizeof( Elf64_Dyn ) )
 	{
-		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Dyn)=%lu\n", ".dynamic", dynamic_header.sh_entsize, sizeof(Elf64_Dyn) );
+		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Dyn)=%lu\n", ".dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
 	}
-	if ( 0 != (dynamic_header.sh_size % sizeof( Elf64_Dyn )) )
+	if ( 0 != (dynamic_header->sh_size % sizeof( Elf64_Dyn )) )
 	{
-		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Dyn)=%lu != 0\n", "dynamic", dynamic_header.sh_entsize, sizeof(Elf64_Dyn) );
+		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Dyn)=%lu != 0\n", "dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
 	}
 
-	size_t n_dyn_ent = dynamic_header.sh_size / dynamic_header.sh_entsize;
+	size_t n_dyn_ent = dynamic_header->sh_size / dynamic_header->sh_entsize;
 	Elf64_Off origin_file_pos;
 	Elf64_Off dyn_str_offset;
 	Elf64_Dyn dynamic_ent;
 	char necessarily_so[BUFSIZ];
-	seek_file( fin, dynamic_header.sh_offset );
+	seek_file( fin, dynamic_header->sh_offset );
 	print_info( "necessarily .so =\n" );
 	for ( size_t i = 0; i < n_dyn_ent; ++i )
 	{
-		read_n_byte( fin, dynamic_header.sh_entsize, &dynamic_ent );
+		read_n_byte( fin, dynamic_header->sh_entsize, &dynamic_ent );
 		origin_file_pos = ftell( fin );
 		switch ( dynamic_ent.d_tag )
 		{
 			case DT_NEEDED: 
 				dyn_str_offset = dynamic_ent.d_un.d_val;
-				seek_file( fin, dynstr_header.sh_offset + dyn_str_offset );
+				seek_file( fin, dynstr_header->sh_offset + dyn_str_offset );
 				read_string( fin, necessarily_so );
 				seek_file( fin, origin_file_pos );
 				print_info( "+ %s\n", necessarily_so );
@@ -296,41 +309,24 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	{
 		print_error( "[Error] cannot find section .shstrtab\n" );
 	}
+	Elf64_Half shstrtab_idx = search_section_idx ( fin, elf_header, ".shstrtab" );
+	Elf64_Shdr *shstrtab = hash_section_idx_to_sh_header[shstrtab_idx];
 	print_info( "section header string table index = %hu\n", elf_header->e_shstrndx );
-	Elf64_Shdr shstrtab;
-	read_section_header( fin, elf_header, elf_header->e_shstrndx, &shstrtab );
 
-	char *name_buf = malloc ( shstrtab.sh_size );
-	read_section_data( fin, &shstrtab, (void *)name_buf );
-
-	// create hash to map name to section header
+	// read all section name
+	char *name_buf = malloc ( shstrtab->sh_size );
 	hash_section_idx_to_name = (char **) malloc ( sizeof(char *) * elf_header->e_shnum );
-	hash_section_idx_to_sh_header = (Elf64_Shdr **) malloc ( sizeof(Elf64_Shdr *) * elf_header->e_shnum );
-	ENTRY e, *ep;
-	hcreate( elf_header->e_shnum );
-
-	Elf64_Shdr *sh_header;
+	read_section_data( fin, shstrtab, (void *)name_buf );
 	print_info( "sections (name size virtual_addr):\n" );
 	for ( int i = 0; i < elf_header->e_shnum; ++i )
 	{
 		// read section and keep in hash table 
-		sh_header = (Elf64_Shdr *) malloc ( sizeof(Elf64_Shdr) );
-		read_section_header( fin, elf_header, i, sh_header );
-		hash_section_idx_to_sh_header[i] = sh_header;
+		sh_header = hash_section_idx_to_sh_header[i];
 		print_info( " %-30s %-10lu %0#10lx\n", name_buf + sh_header->sh_name, sh_header->sh_size, sh_header->sh_addr );
 
 		// create map section index to section name 
 		hash_section_idx_to_name[i] = (char *) malloc ( strlen(name_buf + sh_header->sh_name) + 1 );
 		strcpy( hash_section_idx_to_name[i], name_buf + sh_header->sh_name );
-
-		// create map section name to file offset
-		e.key = hash_section_idx_to_name[i];
-		e.data = (void *) sh_header;
-		ep = hsearch( e, ENTER );
-		if ( !ep )
-		{
-			print_error( "hsearch record key %s fail\n", e.key );
-		}
 	}
 
 	free( name_buf );
@@ -479,31 +475,40 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
 	print_info( "dump section %s idx=%d ...\n", section_name, idx );
 
-	Elf64_Shdr symtab_header;
-	read_section_header( fin, elf_header, idx, &symtab_header );
+	Elf64_Shdr *symtab_header;
+	symtab_header = hash_section_idx_to_sh_header[idx];
 
-	if ( SHT_SYMTAB != symtab_header.sh_type )
+	if ( (SHT_SYMTAB != symtab_header->sh_type) && (SHT_DYNSYM != symtab_header->sh_type) )
 	{
-		print_error( "[Error] '%s' is not symtab section\n", section_name );
+		print_error( "[Error] '%s' is not symtab section (%d)\n", section_name, idx );
 	}
 
 	// read strtab section (store symbol name)
-	Elf64_Half strtab_idx = search_section_idx( fin, elf_header, ".strtab" );
-	Elf64_Shdr strtab_header;
-	read_section_header( fin, elf_header, strtab_idx, &strtab_header );
-
-	if ( symtab_header.sh_entsize != sizeof( Elf64_Sym ) )
+	Elf64_Half strtab_idx; 
+	char *symtab_loc;
+	if ( SHT_SYMTAB == symtab_header->sh_type )
 	{
-		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Sym)=%lu\n", section_name, symtab_header.sh_entsize, sizeof(Elf64_Sym) );
+		strtab_idx = search_section_idx( fin, elf_header, ".strtab" );
 	}
-	if ( 0 != (symtab_header.sh_size % sizeof( Elf64_Sym )) )
+	else if ( SHT_DYNSYM == symtab_header->sh_type )
 	{
-		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Sym)=%lu != 0\n", section_name, symtab_header.sh_entsize, sizeof(Elf64_Sym) );
+		strtab_idx = search_section_idx( fin, elf_header, ".dynstr" );
+	}
+	Elf64_Shdr *strtab_header;
+	strtab_header = hash_section_idx_to_sh_header[strtab_idx];
+
+	if ( symtab_header->sh_entsize != sizeof( Elf64_Sym ) )
+	{
+		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Sym)=%lu\n", section_name, symtab_header->sh_entsize, sizeof(Elf64_Sym) );
+	}
+	if ( 0 != (symtab_header->sh_size % sizeof( Elf64_Sym )) )
+	{
+		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Sym)=%lu != 0\n", section_name, symtab_header->sh_entsize, sizeof(Elf64_Sym) );
 	}
 
 	Elf64_Off origin_file_pos;
 	Elf64_Off sym_data_pos;
-	size_t n_symbol = symtab_header.sh_size / symtab_header.sh_entsize;
+	size_t n_symbol = symtab_header->sh_size / symtab_header->sh_entsize;
 	Elf64_Sym symbol;
 	Elf64_Shdr *belong_sh_header;
 	Elf64_Half bss_section_idx = search_section_idx ( fin, elf_header, ".bss" );
@@ -514,15 +519,15 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 	bool is_match_pattern;
 	int ch;
 	data_buf num_buf;
-	seek_file( fin, symtab_header.sh_offset );
+	seek_file( fin, symtab_header->sh_offset );
 	for ( size_t i = 0; i < n_symbol; ++i )
 	{
 		// read symbol entry from symtab
-		read_n_byte( fin, symtab_header.sh_entsize, &symbol );
+		read_n_byte( fin, symtab_header->sh_entsize, &symbol );
 		origin_file_pos = ftell( fin );
 
 		// read symbol name from strtab
-		seek_file( fin, strtab_header.sh_offset + symbol.st_name );
+		seek_file( fin, strtab_header->sh_offset + symbol.st_name );
 		read_string( fin, symbol_name );
 
 		// back to symtab file offset
@@ -943,6 +948,7 @@ int main ( int argc, char **argv )
 		else
 		{
 			dump_elf_symbol( fin, &elf_header, ".symtab", NULL, false );
+			dump_elf_symbol( fin, &elf_header, ".dynsym", NULL, false );
 		}
 	}
 	else if ( FIND_SYMBOL == g_opts.utility )
@@ -954,6 +960,7 @@ int main ( int argc, char **argv )
 		else
 		{
 			dump_elf_symbol( fin, &elf_header, ".symtab", g_opts.search_pattern, g_opts.exact_match );
+			dump_elf_symbol( fin, &elf_header, ".dynsym", g_opts.search_pattern, g_opts.exact_match );
 		}
 	}
 
