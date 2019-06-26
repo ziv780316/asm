@@ -281,6 +281,7 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	size_t n_dyn_ent = dynamic_header->sh_size / dynamic_header->sh_entsize;
 	Elf64_Off origin_file_pos;
 	Elf64_Off dyn_str_offset;
+	Elf64_Off plt_got_addr = 0;
 	Elf64_Dyn dynamic_ent;
 	char necessarily_so[BUFSIZ];
 	seek_file( fin, dynamic_header->sh_offset );
@@ -299,10 +300,16 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 				print_info( "+ %s\n", necessarily_so );
 				break;
 
+			case DT_PLTGOT: 
+				plt_got_addr = dynamic_ent.d_un.d_val;
+
 			default:
 				break;
 		}
 	}
+
+	// print GOT (global offset table) information
+	print_info( "GOT virtual addr = %0#10lx\n", plt_got_addr );
 
 	// print all section name, check .shstrtab exist
 	if ( SHN_UNDEF == elf_header->e_shstrndx )

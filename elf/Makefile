@@ -18,8 +18,8 @@ LINKER     = $(CC)
 CPPLINKER  = $(CPP)
 DEFINES    = 
 BUILD_TYPE = -O2 
-CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 
-CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98
+CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 -fPIC 
+CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98 -fPIC 
 LIBS       = -lm 
 INCLUDE    = -I.
 MOVE       = mv -f

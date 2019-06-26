@@ -81,7 +81,7 @@ int f1 ( int x )
 
 int main ( int argc, char **argv )
 {
-	int x = 1;
+	int x = 5;
 	x = f1( x );
 	x = f3( x );
 	x = f_dyn_export( x );
