@@ -17,9 +17,9 @@ CPP        = g++
 LINKER     = $(CC)
 CPPLINKER  = $(CPP)
 DEFINES    = 
-BUILD_TYPE = -O2 
-CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 -fPIC 
-CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98 -fPIC 
+BUILD_TYPE = -O0
+CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 -fPIC
+CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98 -fPIC
 LIBS       = -lm 
 INCLUDE    = -I.
 MOVE       = mv -f
@@ -46,6 +46,18 @@ lib%.so:%.c
 	$(CC) -shared $< -o $@ $(CFLAGS) $(INCLUDE)
 	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
 
+test.o:test.c
+	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+
+libdyn.so:dyn.c
+	$(CC) -shared $< -o $@ $(CFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+
+libdyn_pic.so:dyn_pic.c
+	$(CC) -fPIC -shared $< -o $@ $(CFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+
 #=================================================
 # Target rules
 #=================================================
@@ -54,8 +66,8 @@ elf_hack: elf_hack.o opts.o
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)
 
-test: test.o test.s libdyn.so
-	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) -L$(LIB_DIR) -ldyn
+test: test.o test.s libdyn.so libdyn_pic.so
+	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) -L$(LIB_DIR) -ldyn -ldyn_pic
 	$(MOVE) $@ $(BIN_DIR)
 
 #=================================================

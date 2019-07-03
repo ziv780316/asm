@@ -29,6 +29,7 @@ typedef union {
 } data_buf;
 
 void print_info ( char *fmt, ... );
+void print_warning ( char *fmt, ... );
 void print_error ( char *fmt, ... );
 bool is_str_character ( int ch );
 void read_n_byte ( FILE *fin, size_t n, void *buf );
@@ -42,8 +43,10 @@ Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name );
 void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
+void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
+#define IDX_NOT_FOUND 0
 
 char **hash_section_idx_to_name = NULL;
 Elf64_Shdr **hash_section_idx_to_sh_header = NULL;
@@ -57,6 +60,14 @@ void print_info ( char *fmt, ... )
 		vprintf( fmt, args );
 		va_end( args );
 	}
+}
+
+void print_warning ( char *fmt, ... )
+{
+	va_list args;
+	va_start( args, fmt );
+	vfprintf( stderr, fmt, args );
+	va_end( args );
 }
 
 void print_error ( char *fmt, ... )
@@ -263,53 +274,61 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 	}
 
 	// read necessarily dynamic library
-	Elf64_Half dynamic_section_idx = search_section_idx ( fin, elf_header, ".dynamic" );
-	Elf64_Half dynstr_section_idx = search_section_idx ( fin, elf_header, ".dynstr" );
-	Elf64_Shdr *dynamic_header;
-	Elf64_Shdr *dynstr_header;
-	dynamic_header = hash_section_idx_to_sh_header[dynamic_section_idx];
-	dynstr_header = hash_section_idx_to_sh_header[dynstr_section_idx];
-	if ( dynamic_header->sh_entsize != sizeof( Elf64_Dyn ) )
+	if ( (ET_EXEC == elf_header->e_type) || (ET_DYN == elf_header->e_type) )
 	{
-		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Dyn)=%lu\n", ".dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
-	}
-	if ( 0 != (dynamic_header->sh_size % sizeof( Elf64_Dyn )) )
-	{
-		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Dyn)=%lu != 0\n", "dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
-	}
-
-	size_t n_dyn_ent = dynamic_header->sh_size / dynamic_header->sh_entsize;
-	Elf64_Off origin_file_pos;
-	Elf64_Off dyn_str_offset;
-	Elf64_Off plt_got_addr = 0;
-	Elf64_Dyn dynamic_ent;
-	char necessarily_so[BUFSIZ];
-	seek_file( fin, dynamic_header->sh_offset );
-	print_info( "necessarily .so =\n" );
-	for ( size_t i = 0; i < n_dyn_ent; ++i )
-	{
-		read_n_byte( fin, dynamic_header->sh_entsize, &dynamic_ent );
-		origin_file_pos = ftell( fin );
-		switch ( dynamic_ent.d_tag )
+		Elf64_Half dynamic_section_idx = search_section_idx ( fin, elf_header, ".dynamic" );
+		Elf64_Half dynstr_section_idx = search_section_idx ( fin, elf_header, ".dynstr" );
+		Elf64_Shdr *dynamic_header;
+		Elf64_Shdr *dynstr_header;
+		dynamic_header = hash_section_idx_to_sh_header[dynamic_section_idx];
+		dynstr_header = hash_section_idx_to_sh_header[dynstr_section_idx];
+		if ( dynamic_header->sh_entsize != sizeof( Elf64_Dyn ) )
 		{
-			case DT_NEEDED: 
-				dyn_str_offset = dynamic_ent.d_un.d_val;
-				seek_file( fin, dynstr_header->sh_offset + dyn_str_offset );
-				read_string( fin, necessarily_so );
-				seek_file( fin, origin_file_pos );
-				print_info( "+ %s\n", necessarily_so );
-				break;
-
-			case DT_PLTGOT: 
-				plt_got_addr = dynamic_ent.d_un.d_val;
-
-			default:
-				break;
+			print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Dyn)=%lu\n", ".dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
 		}
-	}
+		if ( 0 != (dynamic_header->sh_size % sizeof( Elf64_Dyn )) )
+		{
+			print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Dyn)=%lu != 0\n", "dynamic", dynamic_header->sh_entsize, sizeof(Elf64_Dyn) );
+		}
 
-	// print GOT (global offset table) information
-	print_info( "GOT virtual addr = %0#10lx\n", plt_got_addr );
+		size_t n_dyn_ent = dynamic_header->sh_size / dynamic_header->sh_entsize;
+		Elf64_Off origin_file_pos;
+		Elf64_Off dyn_str_offset;
+		Elf64_Off plt_got_addr = 0;
+		Elf64_Dyn dynamic_ent;
+		char necessarily_so[BUFSIZ];
+		seek_file( fin, dynamic_header->sh_offset );
+		print_info( "necessarily .so =\n" );
+		for ( size_t i = 0; i < n_dyn_ent; ++i )
+		{
+			read_n_byte( fin, dynamic_header->sh_entsize, &dynamic_ent );
+			origin_file_pos = ftell( fin );
+			switch ( dynamic_ent.d_tag )
+			{
+				case DT_NEEDED: 
+					dyn_str_offset = dynamic_ent.d_un.d_val;
+					seek_file( fin, dynstr_header->sh_offset + dyn_str_offset );
+					read_string( fin, necessarily_so );
+					seek_file( fin, origin_file_pos );
+					print_info( "+ %s\n", necessarily_so );
+					break;
+
+				case DT_PLTGOT: 
+					plt_got_addr = dynamic_ent.d_un.d_val;
+					break;
+
+				case DT_SONAME: 
+					// nothing now ...
+					break;
+
+				default:
+					break;
+			}
+		}
+
+		// print GOT (global offset table) information of PTL functions (lazy binding)
+		print_info( "PLT GOT virtual addr = %0#10lx\n", plt_got_addr );
+	}
 
 	// print all section name, check .shstrtab exist
 	if ( SHN_UNDEF == elf_header->e_shstrndx )
@@ -363,7 +382,8 @@ Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name )
 
 	if ( !is_find )
 	{
-		print_error( "[Error] cannot find section '%s'\n", name );
+		print_warning( "[Warning] cannot find section '%s'\n", name );
+		idx = 0;
 	}
 
 	free( name_buf );
@@ -387,6 +407,10 @@ Elf64_Half search_section_idx ( FILE *fin, Elf64_Ehdr *elf_header, char *name )
 void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 {
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	if ( IDX_NOT_FOUND == idx )
+	{
+		return;
+	}
 	print_info( "dump section %s idx=%d ...\n", section_name, idx );
 
 	Elf64_Shdr sh_header;
@@ -480,6 +504,10 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 {
 	// read symtab section
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	if ( IDX_NOT_FOUND == idx )
+	{
+		return;
+	}
 	print_info( "dump section %s idx=%d ...\n", section_name, idx );
 
 	Elf64_Shdr *symtab_header;
@@ -653,7 +681,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 			belong_section_name = hash_section_idx_to_name[symbol.st_shndx];
 		}
 
-		if ( (STT_OBJECT == ELF64_ST_TYPE( symbol.st_info )) && (symbol.st_shndx != bss_section_idx) && (symbol.st_size > 0) )
+		if ( (STT_OBJECT == ELF64_ST_TYPE( symbol.st_info )) && (symbol.st_shndx != bss_section_idx) && (symbol.st_size > 0) && !(symbol.st_shndx & 0xf000) )
 		{
 			// hash section
 			belong_sh_header = hash_section_idx_to_sh_header[symbol.st_shndx];
@@ -789,6 +817,10 @@ void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *symbol, dat
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match )
 {
 	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	if ( IDX_NOT_FOUND == idx )
+	{
+		return;
+	}
 	print_info( "dump section %s idx=%d ...\n", section_name, idx );
 
 	Elf64_Shdr sh_header;
@@ -901,6 +933,79 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 	}
 }
 
+void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
+{
+	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	if ( IDX_NOT_FOUND == idx )
+	{
+		return;
+	}
+
+	Elf64_Shdr *rela_header;
+	rela_header = hash_section_idx_to_sh_header[idx];
+	
+	if ( rela_header->sh_entsize != sizeof( Elf64_Rela ) )
+	{
+		print_error( "[Error] %s entsize=%lu != sizeof(Elf64_Rela)=%lu\n", section_name, rela_header->sh_entsize, sizeof(Elf64_Rela) );
+	}
+	if ( 0 != (rela_header->sh_size % sizeof( Elf64_Rela )) )
+	{
+		print_error( "[Error] %s total_size=%lu %% sizeof(Elf64_Rela)=%lu != 0\n", section_name, rela_header->sh_entsize, sizeof(Elf64_Rela) );
+	}
+
+	Elf64_Half dynsym_idx = search_section_idx( fin, elf_header, ".dynsym" );
+	Elf64_Half dynstrtab_idx = search_section_idx( fin, elf_header, ".dynstr" );
+	Elf64_Shdr *symtab = hash_section_idx_to_sh_header[dynsym_idx];
+	Elf64_Shdr *strtab = hash_section_idx_to_sh_header[dynstrtab_idx];
+
+	size_t n_ent = rela_header->sh_size / rela_header->sh_entsize;
+	Elf64_Off origin_file_pos;
+	Elf64_Rela ent;
+	Elf64_Sym symbol;
+	char symbol_name[BUFSIZ];
+	seek_file( fin, rela_header->sh_offset );
+	printf( "Relocation section '%s' contain %lu entries\n", section_name, n_ent );
+	if ( ET_REL == elf_header->e_type )
+	{
+		printf( "file_offset\ttype\tname\n" );
+	}
+	else
+	{
+		printf( "virtual_addr\ttype\tname\n" );
+	}
+
+	for ( size_t i = 0; i < n_ent; ++i )
+	{
+		// read relocation entry from .rela.*
+		read_n_byte( fin, rela_header->sh_entsize, &ent );
+		origin_file_pos = ftell( fin );
+
+		// offset
+		printf( "%0#10lx\t", ent.r_offset );
+
+		// type
+		switch ( ELF64_R_TYPE(ent.r_info) )
+		{
+			case R_X86_64_GLOB_DAT:
+				printf( "R_X86_64_GLOB_DAT\t");
+				break;
+
+			case R_X86_64_JUMP_SLOT:
+				printf( "R_X86_64_JUMP_SLOT\t");
+				break;
+		}
+
+		// read symbol infomation
+		seek_file( fin, symtab->sh_offset + (sizeof(Elf64_Sym)*ELF64_R_SYM(ent.r_info)) );
+		read_n_byte( fin, symtab->sh_entsize, &symbol );
+		seek_file( fin, strtab->sh_offset + symbol.st_name );
+		read_string( fin, symbol_name );
+		printf( "%s\n", symbol_name );
+
+		seek_file( fin, origin_file_pos );
+	}
+}
+
 int main ( int argc, char **argv )
 {
 	// parse command line arguments
@@ -968,6 +1073,18 @@ int main ( int argc, char **argv )
 		{
 			dump_elf_symbol( fin, &elf_header, ".symtab", g_opts.search_pattern, g_opts.exact_match );
 			dump_elf_symbol( fin, &elf_header, ".dynsym", g_opts.search_pattern, g_opts.exact_match );
+		}
+	}
+	else if ( DUMP_RELA == g_opts.utility )
+	{
+		if ( g_opts.section_name )
+		{
+			dump_elf_rela( fin, &elf_header, g_opts.section_name );
+		}
+		else
+		{
+			dump_elf_rela( fin, &elf_header, ".rela.dyn" ); // dynamic library global variable
+			dump_elf_rela( fin, &elf_header, ".rela.plt" ); // dynamic library global functions bind by PLT (lazy binding)
 		}
 	}
 
