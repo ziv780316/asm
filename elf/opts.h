@@ -10,10 +10,12 @@ typedef enum
 	DUMP_STRING,
 	DUMP_SYMBOL,
 	DUMP_FUNCTION,
+	DUMP_RELA,
 
 	FIND_STRING,
 	FIND_SYMBOL,
 	FIND_FUNCTION,
+
 
 } hack_utility;
 

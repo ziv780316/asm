@@ -46,6 +46,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
+char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx );
 #define IDX_NOT_FOUND 0
 
 char **hash_section_idx_to_name = NULL;
@@ -160,6 +161,36 @@ void read_section_data ( FILE *fin, Elf64_Shdr *sh_header, void *buf )
 {
 	seek_file( fin, sh_header->sh_offset );
 	read_n_byte( fin, sh_header->sh_size, buf );
+}
+
+char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx )
+{
+	char *belong_section_name;
+	if ( st_shndx >= elf_header->e_shnum )
+	{
+		switch( st_shndx )
+		{
+			case SHN_ABS:
+				belong_section_name = "ABS";
+				break;
+
+			case SHN_COMMON:
+				belong_section_name = "COMMON";
+				break;
+
+			default:
+				belong_section_name = "?";
+				break;
+		}
+	}
+	else if ( 0 == st_shndx )
+	{
+		belong_section_name = "UND";
+	}
+	else
+	{
+		belong_section_name = hash_section_idx_to_name[st_shndx];
+	}
 }
 
 //typedef struct
@@ -655,31 +686,7 @@ void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 
 		}
 
-		if ( symbol.st_shndx >= elf_header->e_shnum )
-		{
-			switch( symbol.st_shndx )
-			{
-				case SHN_ABS:
-					belong_section_name = "ABS";
-					break;
-
-				case SHN_COMMON:
-					belong_section_name = "COMMON";
-					break;
-
-				default:
-					belong_section_name = "?";
-					break;
-			}
-		}
-		else if ( 0 == symbol.st_shndx )
-		{
-			belong_section_name = "UND";
-		}
-		else
-		{
-			belong_section_name = hash_section_idx_to_name[symbol.st_shndx];
-		}
+		belong_section_name = get_section_name( elf_header, symbol.st_shndx );
 
 		if ( (STT_OBJECT == ELF64_ST_TYPE( symbol.st_info )) && (symbol.st_shndx != bss_section_idx) && (symbol.st_size > 0) && !(symbol.st_shndx & 0xf000) )
 		{
@@ -955,6 +962,15 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 
 	Elf64_Half dynsym_idx = search_section_idx( fin, elf_header, ".dynsym" );
 	Elf64_Half dynstrtab_idx = search_section_idx( fin, elf_header, ".dynstr" );
+	if ( 0 == dynsym_idx )
+	{
+		print_error( "[Error] cannot find section .dynsym\n" );
+	}
+	if ( 0 == dynstrtab_idx )
+	{
+		print_error( "[Error] cannot find section .dynstr\n" );
+	}
+
 	Elf64_Shdr *symtab = hash_section_idx_to_sh_header[dynsym_idx];
 	Elf64_Shdr *strtab = hash_section_idx_to_sh_header[dynstrtab_idx];
 
@@ -962,17 +978,11 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 	Elf64_Off origin_file_pos;
 	Elf64_Rela ent;
 	Elf64_Sym symbol;
+	char *belong_section_name;
 	char symbol_name[BUFSIZ];
 	seek_file( fin, rela_header->sh_offset );
 	printf( "Relocation section '%s' contain %lu entries\n", section_name, n_ent );
-	if ( ET_REL == elf_header->e_type )
-	{
-		printf( "file_offset\ttype\tname\n" );
-	}
-	else
-	{
-		printf( "virtual_addr\ttype\tname\n" );
-	}
+	printf( "rela_virtual_addr(GOT)\ttype\tname\tsymbol_virtual_addr\tsection\tsymbol_size\n" );
 
 	for ( size_t i = 0; i < n_ent; ++i )
 	{
@@ -980,7 +990,7 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 		read_n_byte( fin, rela_header->sh_entsize, &ent );
 		origin_file_pos = ftell( fin );
 
-		// offset
+		// need to reallocate virtual addr (GOT ent addr)
 		printf( "%0#10lx\t", ent.r_offset );
 
 		// type
@@ -993,6 +1003,10 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 			case R_X86_64_JUMP_SLOT:
 				printf( "R_X86_64_JUMP_SLOT\t");
 				break;
+
+			default:
+				printf( "?\t");
+				break;
 		}
 
 		// read symbol infomation
@@ -1000,7 +1014,8 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 		read_n_byte( fin, symtab->sh_entsize, &symbol );
 		seek_file( fin, strtab->sh_offset + symbol.st_name );
 		read_string( fin, symbol_name );
-		printf( "%s\n", symbol_name );
+		belong_section_name = get_section_name( elf_header, symbol.st_shndx );
+		printf( "%s\t%0#10lx\t%s\t%lu\n", symbol_name, symbol.st_value, belong_section_name, symbol.st_size );
 
 		seek_file( fin, origin_file_pos );
 	}
@@ -1075,7 +1090,7 @@ int main ( int argc, char **argv )
 			dump_elf_symbol( fin, &elf_header, ".dynsym", g_opts.search_pattern, g_opts.exact_match );
 		}
 	}
-	else if ( DUMP_RELA == g_opts.utility )
+	else if ( (DUMP_RELA == g_opts.utility) && (ET_REL != elf_header.e_type) )
 	{
 		if ( g_opts.section_name )
 		{
