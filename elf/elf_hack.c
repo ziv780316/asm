@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <elf.h>
+#include <sys/procfs.h>
+#include <sys/user.h>
 
 #include "opts.h"
 
@@ -44,6 +46,7 @@ void dump_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
+void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
 char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx );
@@ -341,7 +344,7 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 					seek_file( fin, dynstr_header->sh_offset + dyn_str_offset );
 					read_string( fin, necessarily_so );
 					seek_file( fin, origin_file_pos );
-					print_info( "+ %s\n", necessarily_so );
+					print_info( " %s\n", necessarily_so );
 					break;
 
 				case DT_PLTGOT: 
@@ -1021,6 +1024,223 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 	}
 }
 
+//typedef struct
+//{
+//  Elf64_Word	p_type;			/* Segment type */
+//  Elf64_Word	p_flags;		/* Segment flags */
+//  Elf64_Off	p_offset;		/* Segment file offset */
+//  Elf64_Addr	p_vaddr;		/* Segment virtual address */
+//  Elf64_Addr	p_paddr;		/* Segment physical address */
+//  Elf64_Xword	p_filesz;		/* Segment size in file */
+//  Elf64_Xword	p_memsz;		/* Segment size in memory */
+//  Elf64_Xword	p_align;		/* Segment alignment */
+//} Elf64_Phdr;
+//typedef struct
+//{
+//	Elf64_Word n_namesz;			/* Length of the note's name.  */
+//	Elf64_Word n_descsz;			/* Length of the note's descriptor.  */
+//	Elf64_Word n_type;			/* Type of the note.  */
+//} Elf64_Nhdr;
+void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
+{
+	// dump process infomation in PT_NOTE header
+	Elf64_Phdr ph_header;
+	Elf64_Phdr note_phdr;
+	seek_file( fin, elf_header->e_phoff );
+	for ( int i = 0; i < elf_header->e_phnum; ++i )
+	{
+		// read section and keep in hash table 
+		read_n_byte( fin, elf_header->e_phentsize, &ph_header );
+		if ( PT_NOTE == ph_header.p_type )
+		{
+			note_phdr = ph_header;
+		}
+	}
+
+	// read program header of process note 
+	Elf64_Nhdr nhdr;
+	prstatus_t process_status;
+	size_t byte_cnt = 0;
+	size_t name_pad;
+	size_t data_pad;
+	char name[BUFSIZ];
+	char *type;
+	printf( "\nprogram note (name type data_size):\n" );
+	seek_file( fin, note_phdr.p_offset );
+	while ( byte_cnt < note_phdr.p_filesz )
+	{
+		read_n_byte( fin, sizeof(Elf64_Nhdr), &nhdr );
+		if ( (nhdr.n_namesz % sizeof(Elf64_Word)) > 0 )
+		{
+			name_pad = sizeof(Elf64_Word) - (nhdr.n_namesz % sizeof(Elf64_Word));
+		}
+		else
+		{
+			name_pad = 0;
+		}
+		if ( (nhdr.n_descsz % sizeof(Elf64_Word)) > 0 )
+		{
+			data_pad = sizeof(Elf64_Word) - (nhdr.n_descsz % sizeof(Elf64_Word));
+		}
+		else
+		{
+			data_pad = 0;
+		}
+
+		switch ( nhdr.n_type )
+		{
+			case NT_PRSTATUS: type = "NT_PRSTATUS"; break;
+			case NT_FPREGSET: type = "NT_FPREGSET"; break;
+			case NT_PRPSINFO: type = "NT_PRPSINFO"; break;
+			case NT_PRXREG: type = "NT_PRXREG"; break;
+			case NT_PLATFORM: type = "NT_PLATFORM"; break;
+			case NT_AUXV: type = "NT_AUXV"; break;
+			case NT_GWINDOWS: type = "NT_GWINDOWS"; break;
+			case NT_ASRS: type = "NT_ASRS"; break;
+			case NT_PSTATUS: type = "NT_PSTATUS"; break;
+			case NT_PSINFO: type = "NT_PSINFO"; break;
+			case NT_PRCRED: type = "NT_PRCRED"; break;
+			case NT_UTSNAME: type = "NT_UTSNAME"; break;
+			case NT_LWPSTATUS: type = "NT_LWPSTATUS"; break;
+			case NT_LWPSINFO: type = "NT_LWPSINFO"; break;
+			case NT_PRFPXREG: type = "NT_PRFPXREG"; break;
+			case NT_SIGINFO: type = "NT_SIGINFO"; break;
+			case NT_FILE: type = "NT_FILE"; break;
+			case NT_PRXFPREG: type = "NT_PRXFPREG"; break;
+			case NT_PPC_VMX: type = "NT_PPC_VMX"; break;
+			case NT_PPC_SPE: type = "NT_PPC_SPE"; break;
+			case NT_PPC_VSX: type = "NT_PPC_VSX"; break;
+			case NT_386_TLS: type = "NT_386_TLS"; break;
+			case NT_386_IOPERM: type = "NT_386_IOPERM"; break;
+			case NT_X86_XSTATE: type = "NT_X86_XSTATE"; break;
+			case NT_S390_HIGH_GPRS: type = "NT_S390_HIGH_GPRS"; break;
+			case NT_S390_TIMER: type = "NT_S390_TIMER"; break;
+			case NT_S390_TODCMP: type = "NT_S390_TODCMP"; break;
+			case NT_S390_TODPREG: type = "NT_S390_TODPREG"; break;
+			case NT_S390_CTRS: type = "NT_S390_CTRS"; break;
+			case NT_S390_PREFIX: type = "NT_S390_PREFIX"; break;
+			case NT_S390_LAST_BREAK: type = "NT_S390_LAST_BREAK"; break;
+			case NT_S390_SYSTEM_CALL: type = "NT_S390_SYSTEM_CALL"; break;
+			case NT_S390_TDB: type = "NT_S390_TDB"; break;
+			case NT_ARM_VFP: type = "NT_ARM_VFP"; break;
+			case NT_ARM_TLS: type = "NT_ARM_TLS"; break;
+			case NT_ARM_HW_BREAK: type = "NT_ARM_HW_BREAK"; break;
+			case NT_ARM_HW_WATCH: type = "NT_ARM_HW_WATCH"; break;
+			default : type = "Other"; break;
+		}
+		byte_cnt += sizeof(Elf64_Nhdr) + nhdr.n_namesz + name_pad + + nhdr.n_descsz + data_pad;
+		read_string( fin, name );
+		print_info( "name_pad=%d data_pad=%d\n", name_pad, data_pad );
+		printf( " %s %s(%0#x) %u\n", name, type, nhdr.n_type, nhdr.n_descsz );
+
+		// skip name pad
+		seek_file( fin, ftell(fin) + name_pad );
+
+		if ( NT_PRSTATUS == nhdr.n_type )
+		{
+			if ( sizeof(prstatus_t) != nhdr.n_descsz )
+			{
+				print_error( "[Error] note prstatus_t fail\n" );
+			}
+			read_n_byte( fin, sizeof(prstatus_t), &process_status );
+
+			// skip data pad
+			seek_file( fin, ftell(fin) + data_pad );
+		}
+		else
+		{
+			// skip data
+			seek_file( fin, ftell(fin) + nhdr.n_descsz + data_pad );
+		}
+	}
+
+	if ( byte_cnt != note_phdr.p_filesz )
+	{
+		print_error( "[Error] note read fail\n" );
+	}
+	
+	// read process infomation
+	//struct elf_prstatus
+	//{
+	//	struct elf_siginfo pr_info;		/* Info associated with signal.  */
+	//	short int pr_cursig;		/* Current signal.  */
+	//	unsigned long int pr_sigpend;	/* Set of pending signals.  */
+	//	unsigned long int pr_sighold;	/* Set of held signals.  */
+	//	__pid_t pr_pid;
+	//	__pid_t pr_ppid;
+	//	__pid_t pr_pgrp;
+	//	__pid_t pr_sid;
+	//	struct timeval pr_utime;		/* User time.  */
+	//	struct timeval pr_stime;		/* System time.  */
+	//	struct timeval pr_cutime;		/* Cumulative user time.  */
+	//	struct timeval pr_cstime;		/* Cumulative system time.  */
+	//	elf_gregset_t pr_reg;		/* GP registers.  */
+	//	int pr_fpvalid;			/* True if math copro being used.  */
+	//};
+	printf( "\nprocess information:\n" );
+	printf( " PID  = %hu\n", process_status.pr_pid );
+	printf( " PPID = %hu\n", process_status.pr_ppid );
+	printf( "\nregisters:\n" );
+	struct user_regs_struct *gp_reg = (struct user_regs_struct *) process_status.pr_reg;
+	//struct user_regs_struct
+	//{
+	//  __extension__ unsigned long long int r15;
+	//  __extension__ unsigned long long int r14;
+	//  __extension__ unsigned long long int r13;
+	//  __extension__ unsigned long long int r12;
+	//  __extension__ unsigned long long int rbp;
+	//  __extension__ unsigned long long int rbx;
+	//  __extension__ unsigned long long int r11;
+	//  __extension__ unsigned long long int r10;
+	//  __extension__ unsigned long long int r9;
+	//  __extension__ unsigned long long int r8;
+	//  __extension__ unsigned long long int rax;
+	//  __extension__ unsigned long long int rcx;
+	//  __extension__ unsigned long long int rdx;
+	//  __extension__ unsigned long long int rsi;
+	//  __extension__ unsigned long long int rdi;
+	//  __extension__ unsigned long long int orig_rax;
+	//  __extension__ unsigned long long int rip;
+	//  __extension__ unsigned long long int cs;
+	//  __extension__ unsigned long long int eflags;
+	//  __extension__ unsigned long long int rsp;
+	//  __extension__ unsigned long long int ss;
+	//  __extension__ unsigned long long int fs_base;
+	//  __extension__ unsigned long long int gs_base;
+	//  __extension__ unsigned long long int ds;
+	//  __extension__ unsigned long long int es;
+	//  __extension__ unsigned long long int fs;
+	//  __extension__ unsigned long long int gs;
+	//};
+	printf( " r15 = %0#10llx\n", gp_reg->r15 );
+	printf( " r14 = %0#10llx\n", gp_reg->r14 );
+	printf( " r13 = %0#10llx\n", gp_reg->r13 );
+	printf( " r12 = %0#10llx\n", gp_reg->r12 );
+	printf( " rbp = %0#10llx\n", gp_reg->rbp );
+	printf( " rbx = %0#10llx\n", gp_reg->rbx );
+	printf( " r11 = %0#10llx\n", gp_reg->r11 );
+	printf( " r10 = %0#10llx\n", gp_reg->r10 );
+	printf( " r9 = %0#10llx\n", gp_reg->r9 );
+	printf( " r8 = %0#10llx\n", gp_reg->r8 );
+	printf( " rax = %0#10llx\n", gp_reg->rax );
+	printf( " rcx = %0#10llx\n", gp_reg->rcx );
+	printf( " rdx = %0#10llx\n", gp_reg->rdx );
+	printf( " rsi = %0#10llx\n", gp_reg->rsi );
+	printf( " rdi = %0#10llx\n", gp_reg->rdi );
+	printf( " orig_rax = %0#10llx\n", gp_reg->orig_rax );
+	printf( " rip = %0#10llx\n", gp_reg->rip );
+	printf( " cs = %0#10llx\n", gp_reg->cs );
+	printf( " eflags = %0#10llx\n", gp_reg->eflags );
+	printf( " rsp = %0#10llx\n", gp_reg->rsp );
+	printf( " ss = %0#10llx\n", gp_reg->ss );
+	printf( " fs_base = %0#10llx\n", gp_reg->fs_base );
+	printf( " gs_base = %0#10llx\n", gp_reg->gs_base );
+	printf( " ds = %0#10llx\n", gp_reg->ds );
+	printf( " es = %0#10llx\n", gp_reg->es );
+	printf( " fs = %0#10llx\n", gp_reg->fs );
+	printf( " gs = %0#10llx\n", gp_reg->gs );
+}
+
 int main ( int argc, char **argv )
 {
 	// parse command line arguments
@@ -1100,6 +1320,17 @@ int main ( int argc, char **argv )
 		{
 			dump_elf_rela( fin, &elf_header, ".rela.dyn" ); // dynamic library global variable
 			dump_elf_rela( fin, &elf_header, ".rela.plt" ); // dynamic library global functions bind by PLT (lazy binding)
+		}
+	}
+	else if ( DUMP_CORE == g_opts.utility ) 
+	{
+		if ( ET_CORE != elf_header.e_type )
+		{
+			print_error( "%s is not core file\n", g_opts.elf_file );
+		}
+		else
+		{
+			dump_core_file( fin, &elf_header );
 		}
 	}
 

@@ -40,11 +40,11 @@ void show_help ()
 		"[Dump Symbol]\n"
 		"  elf_hack -e <elf_file> -u dump_symbol -p <pattern>\n"
 		"\n"
-		"[Dump Function]\n"
-		"  elf_hack -e <elf_file> -u dump_function -f <function>\n"
-		"\n"
 		"[Dump Relocation Info]\n"
 		"  elf_hack -e <elf_file> -u dump_rela\n"
+		"\n"
+		"[Dump Core]\n"
+		"  elf_hack -e <elf_file> -u dump_core\n"
 		"\n"
 		"[String Search]\n"
 		"  elf_hack -e <elf_file> -u find_string -p <pattern>\n"
@@ -134,6 +134,10 @@ void parse_cmd_options ( int argc, char **argv )
 				else if ( 0 == strcmp(optarg, "dump_rela") )
 				{
 					g_opts.utility = DUMP_RELA;
+				}
+				else if ( 0 == strcmp(optarg, "dump_core") )
+				{
+					g_opts.utility = DUMP_CORE;
 				}
 				else if ( 0 == strcmp(optarg, "find_string") )
 				{
