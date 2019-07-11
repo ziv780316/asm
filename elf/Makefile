@@ -61,7 +61,7 @@ libdyn_pic.so:dyn_pic.c
 #=================================================
 # Target rules
 #=================================================
-elf_hack: elf_hack.o opts.o 
+elf_hack: elf_hack.o macro_string_map.o opts.o 
 	cd $(LIB_DIR);\
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)

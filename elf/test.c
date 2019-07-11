@@ -84,7 +84,10 @@ int f1 ( int x )
 
 int main ( int argc, char **argv )
 {
+	double y = 1.234;
+	double z;
 	int x = 5;
+	z = y * 2.345;
 	x = f1( x );
 	x = f3( x );
 	x = f_dyn_export( x );

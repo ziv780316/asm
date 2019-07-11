@@ -13,9 +13,9 @@
 #include <sys/user.h>
 
 #include "opts.h"
+#include "macro_string_map.h"
 
 #define LINE_WIDTH 30
-
 
 typedef union {
 	unsigned char hex[8];
@@ -225,6 +225,9 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 		print_error( "[Error] file '%s' is not ELF\n", g_opts.elf_file );
 	}
 
+	
+	print_info( "cpu = %s\n", cpu_type_string_map( elf_header->e_machine ) );
+
 	if ( ELFCLASS64 == elf_header->e_ident[EI_CLASS] )
 	{
 		print_info( "machine = 64-bit\n" );
@@ -251,14 +254,7 @@ void read_elf_header ( FILE *fin, Elf64_Ehdr *elf_header )
 		print_error( "[Error] ELF file '%s' is not LSB\n", g_opts.elf_file );
 	}
 
-	if ( ELFOSABI_SYSV == elf_header->e_ident[EI_OSABI] )
-	{
-		print_info( "OS/ABI = UNIX system V ABI\n" );
-	}
-	else
-	{
-		print_error( "[Warning] ELF file '%s' may not compatible in UNIX system V ABI\n", g_opts.elf_file );
-	}
+	print_info( "OS/ABI = %s\n", osabi_type_string_map( elf_header->e_ident[EI_OSABI] ) );
 
 	if ( ET_EXEC == elf_header->e_type )
 	{
@@ -996,29 +992,13 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name )
 		// need to reallocate virtual addr (GOT ent addr)
 		printf( "%0#10lx\t", ent.r_offset );
 
-		// type
-		switch ( ELF64_R_TYPE(ent.r_info) )
-		{
-			case R_X86_64_GLOB_DAT:
-				printf( "R_X86_64_GLOB_DAT\t");
-				break;
-
-			case R_X86_64_JUMP_SLOT:
-				printf( "R_X86_64_JUMP_SLOT\t");
-				break;
-
-			default:
-				printf( "?\t");
-				break;
-		}
-
 		// read symbol infomation
 		seek_file( fin, symtab->sh_offset + (sizeof(Elf64_Sym)*ELF64_R_SYM(ent.r_info)) );
 		read_n_byte( fin, symtab->sh_entsize, &symbol );
 		seek_file( fin, strtab->sh_offset + symbol.st_name );
 		read_string( fin, symbol_name );
 		belong_section_name = get_section_name( elf_header, symbol.st_shndx );
-		printf( "%s\t%0#10lx\t%s\t%lu\n", symbol_name, symbol.st_value, belong_section_name, symbol.st_size );
+		printf( "%s\t%s\t%0#10lx\t%s\t%lu\n", rela_type_string_map( ELF64_R_TYPE(ent.r_info) ), symbol_name, symbol.st_value, belong_section_name, symbol.st_size );
 
 		seek_file( fin, origin_file_pos );
 	}
@@ -1060,6 +1040,7 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 	// read program header of process note 
 	Elf64_Nhdr nhdr;
 	prstatus_t process_status;
+	prfpregset_t fp_reg;
 	size_t byte_cnt = 0;
 	size_t name_pad;
 	size_t data_pad;
@@ -1087,47 +1068,7 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 			data_pad = 0;
 		}
 
-		switch ( nhdr.n_type )
-		{
-			case NT_PRSTATUS: type = "NT_PRSTATUS"; break;
-			case NT_FPREGSET: type = "NT_FPREGSET"; break;
-			case NT_PRPSINFO: type = "NT_PRPSINFO"; break;
-			case NT_PRXREG: type = "NT_PRXREG"; break;
-			case NT_PLATFORM: type = "NT_PLATFORM"; break;
-			case NT_AUXV: type = "NT_AUXV"; break;
-			case NT_GWINDOWS: type = "NT_GWINDOWS"; break;
-			case NT_ASRS: type = "NT_ASRS"; break;
-			case NT_PSTATUS: type = "NT_PSTATUS"; break;
-			case NT_PSINFO: type = "NT_PSINFO"; break;
-			case NT_PRCRED: type = "NT_PRCRED"; break;
-			case NT_UTSNAME: type = "NT_UTSNAME"; break;
-			case NT_LWPSTATUS: type = "NT_LWPSTATUS"; break;
-			case NT_LWPSINFO: type = "NT_LWPSINFO"; break;
-			case NT_PRFPXREG: type = "NT_PRFPXREG"; break;
-			case NT_SIGINFO: type = "NT_SIGINFO"; break;
-			case NT_FILE: type = "NT_FILE"; break;
-			case NT_PRXFPREG: type = "NT_PRXFPREG"; break;
-			case NT_PPC_VMX: type = "NT_PPC_VMX"; break;
-			case NT_PPC_SPE: type = "NT_PPC_SPE"; break;
-			case NT_PPC_VSX: type = "NT_PPC_VSX"; break;
-			case NT_386_TLS: type = "NT_386_TLS"; break;
-			case NT_386_IOPERM: type = "NT_386_IOPERM"; break;
-			case NT_X86_XSTATE: type = "NT_X86_XSTATE"; break;
-			case NT_S390_HIGH_GPRS: type = "NT_S390_HIGH_GPRS"; break;
-			case NT_S390_TIMER: type = "NT_S390_TIMER"; break;
-			case NT_S390_TODCMP: type = "NT_S390_TODCMP"; break;
-			case NT_S390_TODPREG: type = "NT_S390_TODPREG"; break;
-			case NT_S390_CTRS: type = "NT_S390_CTRS"; break;
-			case NT_S390_PREFIX: type = "NT_S390_PREFIX"; break;
-			case NT_S390_LAST_BREAK: type = "NT_S390_LAST_BREAK"; break;
-			case NT_S390_SYSTEM_CALL: type = "NT_S390_SYSTEM_CALL"; break;
-			case NT_S390_TDB: type = "NT_S390_TDB"; break;
-			case NT_ARM_VFP: type = "NT_ARM_VFP"; break;
-			case NT_ARM_TLS: type = "NT_ARM_TLS"; break;
-			case NT_ARM_HW_BREAK: type = "NT_ARM_HW_BREAK"; break;
-			case NT_ARM_HW_WATCH: type = "NT_ARM_HW_WATCH"; break;
-			default : type = "Other"; break;
-		}
+		type = note_type_string_map( nhdr.n_type );
 		byte_cnt += sizeof(Elf64_Nhdr) + nhdr.n_namesz + name_pad + + nhdr.n_descsz + data_pad;
 		read_string( fin, name );
 		print_info( "name_pad=%d data_pad=%d\n", name_pad, data_pad );
@@ -1138,11 +1079,24 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 
 		if ( NT_PRSTATUS == nhdr.n_type )
 		{
+			// read general registers
 			if ( sizeof(prstatus_t) != nhdr.n_descsz )
 			{
-				print_error( "[Error] note prstatus_t fail\n" );
+				print_error( "[Error] read prstatus_t fail\n" );
 			}
 			read_n_byte( fin, sizeof(prstatus_t), &process_status );
+
+			// skip data pad
+			seek_file( fin, ftell(fin) + data_pad );
+		}
+		else if ( NT_FPREGSET == nhdr.n_type )
+		{
+			// read float number registers
+			if ( sizeof(prfpregset_t) != nhdr.n_descsz )
+			{
+				print_error( "[Error] read fpregset_t fail\n" );
+			}
+			read_n_byte( fin, sizeof(prfpregset_t), &fp_reg );
 
 			// skip data pad
 			seek_file( fin, ftell(fin) + data_pad );
@@ -1239,6 +1193,39 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 	printf( " es = %0#10llx\n", gp_reg->es );
 	printf( " fs = %0#10llx\n", gp_reg->fs );
 	printf( " gs = %0#10llx\n", gp_reg->gs );
+
+	//struct user_fpregs_struct
+	//{
+	//  unsigned short int	cwd;
+	//  unsigned short int	swd;
+	//  unsigned short int	ftw;
+	//  unsigned short int	fop;
+	//  __extension__ unsigned long long int rip;
+	//  __extension__ unsigned long long int rdp;
+	//  unsigned int		mxcsr;
+	//  unsigned int		mxcr_mask;
+	//  unsigned int		st_space[32];   /* 8*16 bytes for each FP-reg = 128 bytes */
+	//  unsigned int		xmm_space[64];  /* 16*16 bytes for each XMM-reg = 256 bytes */
+	//  unsigned int		padding[24];
+	//};
+	union 
+	{
+		double fnum;
+		unsigned int inum[2];
+	} num;
+	for ( int i = 0; i < 16; ++i )
+	{
+		num.inum[0] = fp_reg.xmm_space[i*2];
+		num.inum[1] = fp_reg.xmm_space[i*2 + 1];
+		printf( " xmm%-2u = %.15le\n", i, num.fnum );
+	}
+	for ( int i = 0; i < 8; ++i )
+	{
+		num.inum[0] = fp_reg.st_space[i*2];
+		num.inum[1] = fp_reg.st_space[i*2 + 1];
+		printf( " fpu_st[%u] = %.15le\n", i, num.fnum );
+	}
+
 }
 
 int main ( int argc, char **argv )
