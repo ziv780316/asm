@@ -1210,20 +1210,35 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 	//};
 	union 
 	{
-		double fnum;
-		unsigned int inum[2];
+		unsigned char hex[16];
+		unsigned int inum[4];
+		double fnum[2];
 	} num;
 	for ( int i = 0; i < 16; ++i )
 	{
-		num.inum[0] = fp_reg.xmm_space[i*2];
-		num.inum[1] = fp_reg.xmm_space[i*2 + 1];
-		printf( " xmm%-2u = %.15le\n", i, num.fnum );
+		num.inum[0] = fp_reg.xmm_space[i*4];
+		num.inum[1] = fp_reg.xmm_space[i*4 + 1];
+		num.inum[2] = fp_reg.xmm_space[i*4 + 3];
+		num.inum[3] = fp_reg.xmm_space[i*4 + 4];
+		printf( " xmm%-2u = %.15le = ", i, num.fnum[0] );
+		for ( int j = 0; j < 8; ++j )
+		{
+			printf( "%02hhx", num.hex[j] );
+		}
+		printf( "\n" );
 	}
 	for ( int i = 0; i < 8; ++i )
 	{
-		num.inum[0] = fp_reg.st_space[i*2];
-		num.inum[1] = fp_reg.st_space[i*2 + 1];
-		printf( " fpu_st[%u] = %.15le\n", i, num.fnum );
+		num.inum[0] = fp_reg.st_space[i*4];
+		num.inum[1] = fp_reg.st_space[i*4 + 1];
+		num.inum[2] = fp_reg.st_space[i*4 + 2];
+		num.inum[3] = fp_reg.st_space[i*4 + 3];
+		printf( " fpu_st[%u] = %.15le = ", i, num.fnum[0] );
+		for ( int j = 0; j < 8; ++j )
+		{
+			printf( "%02hhx", num.hex[j] );
+		}
+		printf( "\n" );
 	}
 
 }
