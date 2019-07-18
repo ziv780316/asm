@@ -47,6 +47,7 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header );
+void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
 char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx );
@@ -1243,6 +1244,120 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 
 }
 
+void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
+{
+	// remove space 
+	char *pattern_str_reduce = (char *) calloc ( strlen(pattern_str), sizeof(char) );
+	size_t pattern_size = 0;
+	for ( int i = 0; '\0' != pattern_str[i]; ++i )
+	{
+		if ( !isspace(pattern_str[i]) )
+		{
+			pattern_str_reduce[pattern_size] = pattern_str[i];
+			++pattern_size;
+		}
+	}
+	if ( (pattern_size > 2) && ('0' == pattern_str_reduce[0]) && ('x' == pattern_str_reduce[1]) )
+	{
+		pattern_str_reduce = &(pattern_str_reduce[2]); // ignore '0x'
+		pattern_size -= 2;
+	}
+
+	// check pattern correct
+	size_t n_char = strlen( pattern_str_reduce );
+	size_t n_bytes;
+	if ( 0 != (n_char % 2) )
+	{
+		print_error( "[Error] hex num need 2 multiplier (2 hex make 1 byte)\n" );
+	}
+	n_bytes = n_char / 2;
+
+	// transfer char to raw hex (LSB)
+	int lsb_idx;
+	char *pattern_raw = (char *) calloc ( n_bytes, sizeof(char) );
+	char *endptr;
+	char tmp_buf[3];
+	for ( int i = 0; i < n_bytes; ++i )
+	{
+		lsb_idx = n_bytes - i - 1;
+		tmp_buf[0] = pattern_str_reduce[i*2];
+		tmp_buf[1] = pattern_str_reduce[i*2 + 1];
+		tmp_buf[2] = '\0';
+		pattern_raw[lsb_idx] = strtoul( tmp_buf, &endptr, 16 );
+		print_info( "transefer %c%c -> %02hhx\n", pattern_str_reduce[i*2], pattern_str_reduce[i*2+1], pattern_raw[lsb_idx] );
+	}
+	print_info( "hex pattern = ");
+	for ( int i = 0; i < n_bytes; ++i )
+	{
+		print_info( "%02hhx", pattern_raw[i] );
+	}
+	print_info( "\n" );
+
+	// dump process infomation in PT_NOTE header
+	Elf64_Phdr ph_header;
+	Elf64_Phdr note_phdr;
+	seek_file( fin, elf_header->e_phoff );
+	for ( Elf64_Half k = 0; k < elf_header->e_phnum; ++k )
+	{
+		// read section and keep in hash table 
+		read_n_byte( fin, elf_header->e_phentsize, &ph_header );
+		if ( PT_LOAD == ph_header.p_type )
+		{
+			bool is_find_exact = false;
+			Elf64_Addr maximum_match_pos = 0;
+			Elf64_Addr hex_pos = 0; // virtual address
+			Elf64_Off origin_file_pos = ftell( fin );
+			int ch;
+			size_t match_cnt = 0;
+			size_t maximum_match_cnt = 0;
+			size_t pattern_len = pattern_size;
+
+			seek_file( fin, ph_header.p_offset );
+			for ( Elf64_Xword i = 0; i < ph_header.p_filesz; ++i )
+			{
+				ch = fgetc( fin );
+				if ( EOF == ch )
+				{
+					print_error( "[Error] fgetc fail --> %s\n", strerror(errno) );
+				}
+
+				if ( 0 == match_cnt )
+				{
+					hex_pos = ph_header.p_vaddr + (Elf64_Addr)i;
+				}
+				
+				if ( pattern_raw[match_cnt] == ch )
+				{
+					++match_cnt;
+				}
+				else
+				{
+					if ( match_cnt > maximum_match_pos )
+					{
+						maximum_match_pos = hex_pos;
+						maximum_match_cnt = match_cnt;
+					}
+					match_cnt = 0;
+				}
+
+				if ( match_cnt == pattern_len )
+				{
+					is_find_exact = true;
+					printf( "exact match '%s' at virtual address %0#10lx (%lu bytes) in load header %hu\n", pattern_str_reduce, hex_pos, match_cnt, k );
+					match_cnt = 0;
+				}
+			}
+
+			if ( !is_find_exact && maximum_match_cnt > 0 )
+			{
+				printf( "patial match '%*s' at virtual address %0#10lx (%lu bytes) in load header %hd\n", (int) maximum_match_cnt * 2, pattern_str_reduce, maximum_match_pos, maximum_match_cnt, k );
+			}
+
+			seek_file( fin, origin_file_pos );
+		}
+	}
+}
+
 int main ( int argc, char **argv )
 {
 	// parse command line arguments
@@ -1333,6 +1448,16 @@ int main ( int argc, char **argv )
 		else
 		{
 			dump_core_file( fin, &elf_header );
+		}
+	}
+	else if ( FIND_HEX == g_opts.utility ) 
+	{
+		if ( ET_CORE == elf_header.e_type )
+		{
+			search_hex_in_core( fin, &elf_header, g_opts.search_pattern );
+		}
+		else
+		{
 		}
 	}
 
