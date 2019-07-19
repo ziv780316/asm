@@ -46,6 +46,9 @@ void show_help ()
 		"[Dump Core]\n"
 		"  elf_hack -e <elf_file> -u dump_core\n"
 		"\n"
+		"[Hex Search]"
+		"  elf_hack -e <elf_file> -u find_hex -p <pattern>\n"
+		"\n"
 		"[String Search]\n"
 		"  elf_hack -e <elf_file> -u find_string -p <pattern>\n"
 		"\n"
@@ -138,6 +141,10 @@ void parse_cmd_options ( int argc, char **argv )
 				else if ( 0 == strcmp(optarg, "dump_core") )
 				{
 					g_opts.utility = DUMP_CORE;
+				}
+				else if ( 0 == strcmp(optarg, "find_hex") )
+				{
+					g_opts.utility = FIND_HEX;
 				}
 				else if ( 0 == strcmp(optarg, "find_string") )
 				{

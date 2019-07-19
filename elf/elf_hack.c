@@ -1222,7 +1222,7 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 		num.inum[2] = fp_reg.xmm_space[i*4 + 3];
 		num.inum[3] = fp_reg.xmm_space[i*4 + 4];
 		printf( " xmm%-2u = %.15le = ", i, num.fnum[0] );
-		for ( int j = 0; j < 8; ++j )
+		for ( int j = 8 - 1; j >= 0; --j )
 		{
 			printf( "%02hhx", num.hex[j] );
 		}
@@ -1235,7 +1235,7 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 		num.inum[2] = fp_reg.st_space[i*4 + 2];
 		num.inum[3] = fp_reg.st_space[i*4 + 3];
 		printf( " fpu_st[%u] = %.15le = ", i, num.fnum[0] );
-		for ( int j = 0; j < 8; ++j )
+		for ( int j = 8 - 1; j >= 0; --j )
 		{
 			printf( "%02hhx", num.hex[j] );
 		}
@@ -1247,7 +1247,7 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 {
 	// remove space 
-	char *pattern_str_reduce = (char *) calloc ( strlen(pattern_str), sizeof(char) );
+	char *pattern_str_reduce = (char *) calloc ( strlen(pattern_str) + 1, sizeof(char) );
 	size_t pattern_size = 0;
 	for ( int i = 0; '\0' != pattern_str[i]; ++i )
 	{
@@ -1272,19 +1272,26 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 	}
 	n_bytes = n_char / 2;
 
-	// transfer char to raw hex (LSB)
+	// transfer char to raw hex (MSB)
 	int lsb_idx;
 	char *pattern_raw = (char *) calloc ( n_bytes, sizeof(char) );
 	char *endptr;
 	char tmp_buf[3];
+#define ANY_CHAR (-1)
 	for ( int i = 0; i < n_bytes; ++i )
 	{
-		lsb_idx = n_bytes - i - 1;
-		tmp_buf[0] = pattern_str_reduce[i*2];
-		tmp_buf[1] = pattern_str_reduce[i*2 + 1];
-		tmp_buf[2] = '\0';
-		pattern_raw[lsb_idx] = strtoul( tmp_buf, &endptr, 16 );
-		print_info( "transefer %c%c -> %02hhx\n", pattern_str_reduce[i*2], pattern_str_reduce[i*2+1], pattern_raw[lsb_idx] );
+		if ( ('.' == pattern_str_reduce[i*2]) && ('.' == pattern_str_reduce[i*2+1]) )
+		{
+			pattern_raw[i] = ANY_CHAR;
+		}
+		else
+		{
+			tmp_buf[0] = pattern_str_reduce[i*2];
+			tmp_buf[1] = pattern_str_reduce[i*2 + 1];
+			tmp_buf[2] = '\0';
+			pattern_raw[i] = strtoul( tmp_buf, &endptr, 16 );
+			print_info( "transefer %c%c -> %02hhx\n", pattern_str_reduce[i*2], pattern_str_reduce[i*2+1], pattern_raw[i] );
+		}
 	}
 	print_info( "hex pattern = ");
 	for ( int i = 0; i < n_bytes; ++i )
@@ -1307,32 +1314,33 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 			Elf64_Addr maximum_match_pos = 0;
 			Elf64_Addr hex_pos = 0; // virtual address
 			Elf64_Off origin_file_pos = ftell( fin );
-			int ch;
 			size_t match_cnt = 0;
 			size_t maximum_match_cnt = 0;
-			size_t pattern_len = pattern_size;
+			size_t pattern_len = n_bytes;
+			char ch;
 
+			// read file into memory
+			char *mem = (char *) malloc ( ph_header.p_filesz );
 			seek_file( fin, ph_header.p_offset );
-			for ( Elf64_Xword i = 0; i < ph_header.p_filesz; ++i )
+			read_n_byte( fin, ph_header.p_filesz, mem );
+
+			// read from high address (MSB), thus compare from MSB
+			for ( long i = (ph_header.p_filesz - 1); i >= 0; --i )
 			{
-				ch = fgetc( fin );
-				if ( EOF == ch )
-				{
-					print_error( "[Error] fgetc fail --> %s\n", strerror(errno) );
-				}
+				ch = mem[i];
 
 				if ( 0 == match_cnt )
 				{
-					hex_pos = ph_header.p_vaddr + (Elf64_Addr)i;
+					hex_pos = ph_header.p_vaddr + i;
 				}
 				
-				if ( pattern_raw[match_cnt] == ch )
+				if ( (pattern_raw[match_cnt] == ch) || (pattern_raw[match_cnt] == ANY_CHAR) )
 				{
 					++match_cnt;
 				}
 				else
 				{
-					if ( match_cnt > maximum_match_pos )
+					if ( match_cnt > maximum_match_cnt )
 					{
 						maximum_match_pos = hex_pos;
 						maximum_match_cnt = match_cnt;
@@ -1340,22 +1348,33 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 					match_cnt = 0;
 				}
 
+				//print_info( "%0#10lx %hhx %d %d\n", ph_header.p_vaddr + i, ch , match_cnt, maximum_match_cnt );
+
 				if ( match_cnt == pattern_len )
 				{
 					is_find_exact = true;
-					printf( "exact match '%s' at virtual address %0#10lx (%lu bytes) in load header %hu\n", pattern_str_reduce, hex_pos, match_cnt, k );
+					printf( "exact match %s at LSB virtual address %0#10lx (%lu bytes) in load header %hu\n", pattern_str_reduce, hex_pos - pattern_len + 1, pattern_len, k );
 					match_cnt = 0;
 				}
 			}
 
-			if ( !is_find_exact && maximum_match_cnt > 0 )
+			if ( !is_find_exact && (maximum_match_cnt > 0) )
 			{
-				printf( "patial match '%*s' at virtual address %0#10lx (%lu bytes) in load header %hd\n", (int) maximum_match_cnt * 2, pattern_str_reduce, maximum_match_pos, maximum_match_cnt, k );
+				printf( "patial match " );
+				for ( int j = 0; j < maximum_match_cnt * 2; ++j )
+				{
+					printf( "%c", pattern_str_reduce[j] );
+				}
+				printf( " at LSB virtual address %0#10lx (%lu bytes) in load header %hd, target result may at %0#10lx\n", maximum_match_pos - maximum_match_cnt + 1, maximum_match_cnt, k, maximum_match_pos - pattern_len + 1 );
 			}
 
+			free( mem );
 			seek_file( fin, origin_file_pos );
 		}
 	}
+
+	free( pattern_str_reduce );
+	free( pattern_raw );
 }
 
 int main ( int argc, char **argv )
