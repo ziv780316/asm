@@ -17,7 +17,7 @@ CPP        = g++
 LINKER     = $(CC)
 CPPLINKER  = $(CPP)
 DEFINES    = 
-BUILD_TYPE = -O0
+BUILD_TYPE = -O0 -g
 CFLAGS     = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=gnu99 -fPIC
 CPPFLAGS   = $(BUILD_TYPE) -Wno-unused-parameter -Wfatal-errors -std=c++98 -fPIC
 LIBS       = -lm 
@@ -67,7 +67,7 @@ elf_hack: elf_hack.o macro_string_map.o opts.o
 	$(MOVE) $@ ../$(BIN_DIR)
 
 test: test.o test.s libdyn.so libdyn_pic.so
-	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) -L$(LIB_DIR) -ldyn -ldyn_pic
+	$(LINKER) -o $@ $(LIB_DIR)/$(notdir $<) ./$(LIB_DIR)/libdyn.so ./$(LIB_DIR)/libdyn_pic.so
 	$(MOVE) $@ $(BIN_DIR)
 
 #=================================================

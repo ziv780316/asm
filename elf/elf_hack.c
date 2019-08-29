@@ -1248,6 +1248,7 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 {
 	// remove space 
 	char *pattern_str_reduce = (char *) calloc ( strlen(pattern_str) + 1, sizeof(char) );
+	char *free_pos_pattern_str_reduce = pattern_str_reduce;
 	size_t pattern_size = 0;
 	for ( int i = 0; '\0' != pattern_str[i]; ++i )
 	{
@@ -1259,6 +1260,7 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 	}
 	if ( (pattern_size > 2) && ('0' == pattern_str_reduce[0]) && ('x' == pattern_str_reduce[1]) )
 	{
+		free_pos_pattern_str_reduce = pattern_str_reduce;
 		pattern_str_reduce = &(pattern_str_reduce[2]); // ignore '0x'
 		pattern_size -= 2;
 	}
@@ -1274,10 +1276,10 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 
 	// transfer char to raw hex (MSB)
 	int lsb_idx;
-	char *pattern_raw = (char *) calloc ( n_bytes, sizeof(char) );
+	unsigned int *pattern_raw = (unsigned int *) calloc ( n_bytes, sizeof(unsigned int) );
 	char *endptr;
 	char tmp_buf[3];
-#define ANY_CHAR (-1)
+#define ANY_CHAR (0x100)
 	for ( int i = 0; i < n_bytes; ++i )
 	{
 		if ( ('.' == pattern_str_reduce[i*2]) && ('.' == pattern_str_reduce[i*2+1]) )
@@ -1317,10 +1319,10 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 			size_t match_cnt = 0;
 			size_t maximum_match_cnt = 0;
 			size_t pattern_len = n_bytes;
-			char ch;
+			unsigned char ch;
 
 			// read file into memory
-			char *mem = (char *) malloc ( ph_header.p_filesz );
+			unsigned char *mem = (unsigned char *) malloc ( ph_header.p_filesz );
 			seek_file( fin, ph_header.p_offset );
 			read_n_byte( fin, ph_header.p_filesz, mem );
 
@@ -1373,7 +1375,7 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 		}
 	}
 
-	free( pattern_str_reduce );
+	free( free_pos_pattern_str_reduce );
 	free( pattern_raw );
 }
 
