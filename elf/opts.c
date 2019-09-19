@@ -8,6 +8,7 @@
 
 opt_t g_opts = {
 	.utility = DUMP_ELF_INFO,
+	.convert_type = CONVERT_NONE,
 
 	.machine = MACHINE_X86_64,
 
@@ -63,6 +64,7 @@ void show_help ()
 		"  -d  =>  show debug information\n"
 		"  -t  =>  partial match pattern\n"
 		"  -b  =>  specify map table\n"
+		"  -c  =>  specify hex convert type\n"
 		"  -m  <machine> \n"
 		"    + x86_32\n"
 		"    + x86_64 (default)\n"
@@ -91,6 +93,7 @@ void parse_cmd_options ( int argc, char **argv )
 			{"pattern", required_argument, 0, 'p'},
 			{"width", required_argument, 0, 'w'},
 			{"table", required_argument, 0, 'b'},
+			{"convert", required_argument, 0, 'l'},
 
 			{0, 0, 0, 0}
 		};
@@ -98,7 +101,7 @@ void parse_cmd_options ( int argc, char **argv )
 		// getopt_long stores the option index here
 		int option_index = 0;
 
-		c = getopt_long( argc, argv, "htdu:m:e:s:p:w:b:", long_options, &option_index );
+		c = getopt_long( argc, argv, "htdu:c:m:e:s:p:w:b:", long_options, &option_index );
 
 		// detect the end of the options
 		if ( -1 == c )
@@ -161,6 +164,38 @@ void parse_cmd_options ( int argc, char **argv )
 				else
 				{
 					fprintf( stderr, "[Error] unknown utility '%s'\n", optarg );
+					abort();
+				}
+				break;
+
+			case 'c':
+				if ( 0 == strcmp(optarg, "float") )
+				{
+					g_opts.convert_type = CONVERT_FLOAT;
+				}
+				else if ( 0 == strcmp(optarg, "double") )
+				{
+					g_opts.convert_type = CONVERT_DOUBLE;
+				}
+				else if ( 0 == strcmp(optarg, "int") )
+				{
+					g_opts.convert_type = CONVERT_INT;
+				}
+				else if ( 0 == strcmp(optarg, "unsigned") )
+				{
+					g_opts.convert_type = CONVERT_UNSIGNED;
+				}
+				else if ( 0 == strcmp(optarg, "long") )
+				{
+					g_opts.convert_type = CONVERT_LONG;
+				}
+				else if ( 0 == strcmp(optarg, "unsigned_long") )
+				{
+					g_opts.convert_type = CONVERT_UNSIGNED_LONG;
+				}
+				else
+				{
+					fprintf( stderr, "[Error] unknown convert_type '%s'\n", optarg );
 					abort();
 				}
 				break;

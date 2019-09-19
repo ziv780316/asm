@@ -21,6 +21,16 @@ typedef enum
 
 } hack_utility;
 
+typedef enum {
+	CONVERT_NONE,
+	CONVERT_FLOAT,
+	CONVERT_DOUBLE,
+	CONVERT_INT,
+	CONVERT_LONG,
+	CONVERT_UNSIGNED,
+	CONVERT_UNSIGNED_LONG,
+} hex_convert_type;
+
 typedef enum 
 {
 	NONE,
@@ -33,6 +43,8 @@ typedef enum
 typedef struct
 {
 	hack_utility utility;
+
+	hex_convert_type convert_type;
 
 	machine_type machine;
 

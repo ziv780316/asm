@@ -47,7 +47,7 @@ void find_elf_string ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, ch
 void dump_elf_symbol ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *search_pattern, bool exact_match );
 void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header );
-void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern );
+void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern, hex_convert_type );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
 void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
 char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx );
@@ -1244,63 +1244,96 @@ void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header )
 
 }
 
-void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
+void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str, hex_convert_type convert_type )
 {
-	// remove space 
-	char *pattern_str_reduce = (char *) calloc ( strlen(pattern_str) + 1, sizeof(char) );
-	char *free_pos_pattern_str_reduce = pattern_str_reduce;
-	size_t pattern_size = 0;
-	for ( int i = 0; '\0' != pattern_str[i]; ++i )
-	{
-		if ( !isspace(pattern_str[i]) )
-		{
-			pattern_str_reduce[pattern_size] = pattern_str[i];
-			++pattern_size;
-		}
-	}
-	if ( (pattern_size > 2) && ('0' == pattern_str_reduce[0]) && ('x' == pattern_str_reduce[1]) )
-	{
-		free_pos_pattern_str_reduce = pattern_str_reduce;
-		pattern_str_reduce = &(pattern_str_reduce[2]); // ignore '0x'
-		pattern_size -= 2;
-	}
-
-	// check pattern correct
-	size_t n_char = strlen( pattern_str_reduce );
+	char *pattern_str_reduce = NULL;
+	char *free_pos_pattern_str_reduce = NULL;
+	size_t pattern_size;
+	size_t n_char;
 	size_t n_bytes;
-	if ( 0 != (n_char % 2) )
-	{
-		print_error( "[Error] hex num need 2 multiplier (2 hex make 1 byte)\n" );
-	}
-	n_bytes = n_char / 2;
-
-	// transfer char to raw hex (MSB)
-	int lsb_idx;
-	unsigned int *pattern_raw = (unsigned int *) calloc ( n_bytes, sizeof(unsigned int) );
-	char *endptr;
+	unsigned int *pattern_raw = NULL;
+	char *endptr = NULL;
 	char tmp_buf[3];
+	data_buf num;
+
+	if ( CONVERT_NONE == convert_type )
+	{
+		// remove space 
+		pattern_str_reduce = (char *) calloc ( strlen(pattern_str) + 1, sizeof(char) );
+		free_pos_pattern_str_reduce = pattern_str_reduce;
+		pattern_size = 0;
+
+		for ( int i = 0; '\0' != pattern_str[i]; ++i )
+		{
+			if ( !isspace(pattern_str[i]) )
+			{
+				pattern_str_reduce[pattern_size] = pattern_str[i];
+				++pattern_size;
+			}
+		}
+		if ( (pattern_size > 2) && ('0' == pattern_str_reduce[0]) && ('x' == pattern_str_reduce[1]) )
+		{
+			free_pos_pattern_str_reduce = pattern_str_reduce;
+			pattern_str_reduce = &(pattern_str_reduce[2]); // ignore '0x'
+			pattern_size -= 2;
+		}
+
+		// check pattern correct
+		n_char = strlen( pattern_str_reduce );
+		n_bytes;
+		if ( 0 != (n_char % 2) )
+		{
+			print_error( "[Error] hex num need 2 multiplier (2 hex make 1 byte)\n" );
+		}
+		n_bytes = n_char / 2;
+
+		// transfer char to raw hex (MSB)
+		pattern_raw = (unsigned int *) calloc ( n_bytes, sizeof(unsigned int) );
 #define ANY_CHAR (0x100)
-	for ( int i = 0; i < n_bytes; ++i )
-	{
-		if ( ('.' == pattern_str_reduce[i*2]) && ('.' == pattern_str_reduce[i*2+1]) )
+		for ( int i = 0; i < n_bytes; ++i )
 		{
-			pattern_raw[i] = ANY_CHAR;
+			if ( ('.' == pattern_str_reduce[i*2]) && ('.' == pattern_str_reduce[i*2+1]) )
+			{
+				pattern_raw[i] = ANY_CHAR;
+			}
+			else
+			{
+				tmp_buf[0] = pattern_str_reduce[i*2];
+				tmp_buf[1] = pattern_str_reduce[i*2 + 1];
+				tmp_buf[2] = '\0';
+				pattern_raw[i] = strtoul( tmp_buf, &endptr, 16 );
+				print_info( "transefer %c%c -> %02hhx\n", pattern_str_reduce[i*2], pattern_str_reduce[i*2+1], pattern_raw[i] );
+			}
 		}
-		else
+		print_info( "hex pattern = ");
+		for ( int i = 0; i < n_bytes; ++i )
 		{
-			tmp_buf[0] = pattern_str_reduce[i*2];
-			tmp_buf[1] = pattern_str_reduce[i*2 + 1];
-			tmp_buf[2] = '\0';
-			pattern_raw[i] = strtoul( tmp_buf, &endptr, 16 );
-			print_info( "transefer %c%c -> %02hhx\n", pattern_str_reduce[i*2], pattern_str_reduce[i*2+1], pattern_raw[i] );
+			print_info( "%02hhx", pattern_raw[i] );
 		}
+		print_info( "\n" );
 	}
-	print_info( "hex pattern = ");
-	for ( int i = 0; i < n_bytes; ++i )
+	else
 	{
-		print_info( "%02hhx", pattern_raw[i] );
+		if ( CONVERT_DOUBLE == convert_type )
+		{
+			num.g_float = atof( pattern_str );
+			n_bytes = 8;
+		}
+
+		pattern_raw = (unsigned int *) calloc ( n_bytes, sizeof(unsigned int) );
+
+		for ( int i = 0; i < n_bytes; ++i )
+		{
+			pattern_raw[i] = num.hex[n_bytes - i - 1];
+		}
+
+		print_info( "hex pattern = ");
+		for ( int i = 0; i < n_bytes; ++i )
+		{
+			print_info( "%02hhx", pattern_raw[i] );
+		}
+		print_info( "\n" );
 	}
-	print_info( "\n" );
 
 	// dump process infomation in PT_NOTE header
 	Elf64_Phdr ph_header;
@@ -1355,19 +1388,34 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str )
 				if ( match_cnt == pattern_len )
 				{
 					is_find_exact = true;
-					printf( "exact match %s at LSB virtual address %0#10lx (%lu bytes) in load header %hu\n", pattern_str_reduce, hex_pos - pattern_len + 1, pattern_len, k );
+					if ( CONVERT_DOUBLE == convert_type )
+					{
+						printf( "exact match %.15le at LSB virtual address %0#10lx (%lu bytes) in load header %hu\n", num.g_float, hex_pos - pattern_len + 1, pattern_len, k );
+					}
+					else
+					{
+						printf( "exact match %s at LSB virtual address %0#10lx (%lu bytes) in load header %hu\n", pattern_str_reduce, hex_pos - pattern_len + 1, pattern_len, k );
+					}
 					match_cnt = 0;
 				}
 			}
 
 			if ( !is_find_exact && (maximum_match_cnt > 0) )
 			{
-				printf( "patial match " );
-				for ( int j = 0; j < maximum_match_cnt * 2; ++j )
+				if ( CONVERT_DOUBLE == convert_type )
 				{
-					printf( "%c", pattern_str_reduce[j] );
+					printf( "patial match" );
+					printf( " at LSB virtual address %0#10lx (%lu bytes) in load header %hd, target result may at %0#10lx\n", maximum_match_pos - maximum_match_cnt + 1, maximum_match_cnt, k, maximum_match_pos - pattern_len + 1 );
 				}
-				printf( " at LSB virtual address %0#10lx (%lu bytes) in load header %hd, target result may at %0#10lx\n", maximum_match_pos - maximum_match_cnt + 1, maximum_match_cnt, k, maximum_match_pos - pattern_len + 1 );
+				else
+				{
+					printf( "patial match " );
+					for ( int j = 0; j < maximum_match_cnt * 2; ++j )
+					{
+						printf( "%c", pattern_str_reduce[j] );
+					}
+					printf( " at LSB virtual address %0#10lx (%lu bytes) in load header %hd, target result may at %0#10lx\n", maximum_match_pos - maximum_match_cnt + 1, maximum_match_cnt, k, maximum_match_pos - pattern_len + 1 );
+				}
 			}
 
 			free( mem );
@@ -1475,7 +1523,7 @@ int main ( int argc, char **argv )
 	{
 		if ( ET_CORE == elf_header.e_type )
 		{
-			search_hex_in_core( fin, &elf_header, g_opts.search_pattern );
+			search_hex_in_core( fin, &elf_header, g_opts.search_pattern, g_opts.convert_type );
 		}
 		else
 		{
