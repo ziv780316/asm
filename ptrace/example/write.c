@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ctype.h>
+#include <string.h>
 
 #include <sys/ptrace.h>
 #include <sys/types.h>
@@ -14,8 +16,37 @@ void str_to_upper ( char *str )
 {
 	for ( int i = 0; str[i] != '\0' ; ++i )
 	{
-		str[i] = towupper( str[i] );
+		str[i] = toupper( str[i] );
 	}
+}
+
+void get_bytes ( pid_t child_pid, unsigned long addr, unsigned char *buf, unsigned long len )
+{
+	union 
+	{
+		long val;
+		char qbytes[sizeof(long)];
+	} data;
+
+	int offset;
+	int cnt = 0;
+	int nq = len / sizeof(long);
+
+	while ( cnt < nq )
+	{
+		offset = cnt * 8;
+		data.val = ptrace( PTRACE_PEEKDATA, child_pid, addr + offset, NULL );
+		memcpy( buf + offset, data.qbytes, sizeof(long) );
+		++cnt;
+	}
+
+	if ( (len % sizeof(long)) != 0 )
+	{
+		offset = cnt * 8;
+		data.val = ptrace( PTRACE_PEEKDATA, child_pid, addr + offset, NULL );
+		memcpy( buf + offset, data.qbytes, (len % sizeof(long)) );
+	}
+
 }
 
 int main ( int argc, char **argv )
@@ -59,11 +90,16 @@ int main ( int argc, char **argv )
 						params[0] = ptrace( PTRACE_PEEKUSER, child_pid, 8 * RDI, NULL ); 
 						params[1] = ptrace( PTRACE_PEEKUSER, child_pid, 8 * RSI, NULL ); 
 						params[2] = ptrace( PTRACE_PEEKUSER, child_pid, 8 * RDX, NULL ); 
-						printf( "[debugger] call write( %llx, %#10llx, %llx)\n", params[0], params[1], params[2] );
+						printf( "[debugger] call write( %ld, %#10llx, %ld)\n", (long) params[0], params[1], (long) params[2] );
 
 						// extract all regs
 						ptrace( PTRACE_GETREGS, child_pid, NULL, &regs ); 
-						printf( "[debugger] call write( %llx, %#10llx, %llx)\n", regs.rdi, regs.rsi, regs.rdx );
+						printf( "[debugger] call write( %ld, %#10llx, %ld)\n", (long) regs.rdi, regs.rsi, (long) regs.rdx );
+
+						// get data
+						char buf[BUFSIZ] = {0};
+						get_bytes( child_pid, regs.rsi, buf, regs.rdx );
+						printf( "[debugger] write str='%s'\n", buf );
 					}
 					else
 					{
