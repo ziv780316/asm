@@ -49,6 +49,35 @@ void get_bytes ( pid_t child_pid, unsigned long addr, unsigned char *buf, unsign
 
 }
 
+void put_bytes ( pid_t child_pid, unsigned long addr, unsigned char *buf, unsigned long len )
+{
+	union 
+	{
+		long val;
+		char qbytes[sizeof(long)];
+	} data;
+
+	int offset;
+	int cnt = 0;
+	int nq = len / sizeof(long);
+
+	while ( cnt < nq )
+	{
+		offset = cnt * 8;
+		memcpy( data.qbytes, buf + offset, sizeof(long) );
+		ptrace( PTRACE_POKEDATA, child_pid, addr + offset, data.val );
+		++cnt;
+	}
+
+	if ( (len % sizeof(long)) != 0 )
+	{
+		offset = cnt * 8;
+		memcpy( data.qbytes, buf + offset, (len % sizeof(long)) );
+		ptrace( PTRACE_POKEDATA, child_pid, addr + offset, data.val );
+	}
+
+}
+
 int main ( int argc, char **argv )
 {
 	int status;
@@ -100,6 +129,9 @@ int main ( int argc, char **argv )
 						char buf[BUFSIZ] = {0};
 						get_bytes( child_pid, regs.rsi, buf, regs.rdx );
 						printf( "[debugger] write str='%s'\n", buf );
+						printf( "[debugger] change str to uppoer\n" );
+						str_to_upper( buf );
+						put_bytes( child_pid, regs.rsi, buf, regs.rdx );
 					}
 					else
 					{
