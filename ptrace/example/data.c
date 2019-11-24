@@ -94,7 +94,7 @@ int main ( int argc, char **argv )
 	{
 		// child
 		ptrace( PTRACE_TRACEME, 0, NULL, NULL );
-		execl( "/bin/ls", "ls", NULL );
+		execl( "./bin/test", "ls", NULL );
 
 	}
 	else

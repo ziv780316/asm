@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <ctype.h>
 #include <string.h>
+#include <errno.h>
 
 #include <sys/ptrace.h>
 #include <sys/types.h>
@@ -11,6 +12,7 @@
 #include <sys/reg.h> // definition ORIG_RAX, RAX
 #include <sys/syscall.h> // definition SYS_write
 #include <sys/user.h> // definition of user_regs_struct
+#include <sys/personality.h> // set process execution doman (change program ABI), disable ASLR 
 
 void str_to_upper ( char *str )
 {
@@ -85,7 +87,7 @@ int main ( int argc, char **argv )
 	int insyscall = 0;
 	long rax;
 	long orig_rax;
-	long instruction;
+	unsigned long instruction;
 	unsigned long long params[10];
 	struct user_regs_struct regs;
 	pid_t child_pid;
@@ -95,13 +97,25 @@ int main ( int argc, char **argv )
 	if ( 0 == child_pid )
 	{
 		// child
+
+		// disable ASLR (address space layout randomization)
+		if ( -1 == personality( ADDR_NO_RANDOMIZE ) )
+		{
+			fprintf( stderr, "[Error] disable ASLR fail --> %s\n", strerror(errno) );
+			abort();
+		}
+
+		// enable ptrace tracing
 		ptrace( PTRACE_TRACEME, 0, NULL, NULL );
+
+		// exec
 		execl( "./bin/test", "ls", NULL );
 
 	}
 	else
 	{
 		// parent
+
 		while( 1 ) 
 		{
 			waitpid( child_pid, &status, 0 );
@@ -112,8 +126,8 @@ int main ( int argc, char **argv )
 				{
 					ptrace( PTRACE_GETREGS, child_pid, NULL, &regs ); 
 					instruction = ptrace( PTRACE_PEEKTEXT, child_pid, regs.rip,  NULL ); 
-					printf( "pc=%0#10lx inst=%0#10lx\n", (long) regs.rip, instruction );
-					ptrace( PTRACE_SYSCALL, child_pid, NULL, NULL ); // continue but stop at next system call enter or exit
+					printf( "pc=%0#10lx inst=%0#10lx\n", (unsigned long) regs.rip, instruction );
+					ptrace( PTRACE_SINGLESTEP, child_pid, NULL, NULL ); 
 				}
 				else
 				{
