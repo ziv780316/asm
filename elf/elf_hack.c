@@ -49,7 +49,8 @@ void dump_elf_rela ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name );
 void dump_core_file ( FILE *fin, Elf64_Ehdr *elf_header );
 void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern, hex_convert_type );
 void read_symbol_data ( FILE *fin, Elf64_Shdr *sh_header, Elf64_Sym *sym, data_buf *buf );
-void modify_elf_code( FILE *fin, Elf64_Off offset, size_t n_hex, char *lsb_hex_bytes );
+void eval_call_instruction ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *func_name, unsigned long rip, bool exact_match );
+void eval_jmp_instruction ( unsigned long jmp_vaddr, unsigned long rip );
 char *get_section_name ( Elf64_Ehdr *elf_header, Elf64_Half st_shndx );
 #define IDX_NOT_FOUND 0
 
@@ -1322,6 +1323,7 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str, 
 
 		pattern_raw = (unsigned int *) calloc ( n_bytes, sizeof(unsigned int) );
 
+		// MSB 
 		for ( int i = 0; i < n_bytes; ++i )
 		{
 			pattern_raw[i] = num.hex[n_bytes - i - 1];
@@ -1427,6 +1429,140 @@ void search_hex_in_core ( FILE *fin, Elf64_Ehdr *elf_header, char *pattern_str, 
 	free( pattern_raw );
 }
 
+void eval_call_instruction ( FILE *fin, Elf64_Ehdr *elf_header, char *section_name, char *func_name, unsigned long rip, bool exact_match )
+{
+	// read symtab section
+	Elf64_Half idx = search_section_idx( fin, elf_header, section_name );
+	if ( IDX_NOT_FOUND == idx )
+	{
+		return;
+	}
+	print_info( "dump section %s idx=%d ...\n", section_name, idx );
+
+	Elf64_Shdr *symtab_header;
+	symtab_header = hash_section_idx_to_sh_header[idx];
+
+	if ( (SHT_SYMTAB != symtab_header->sh_type) && (SHT_DYNSYM != symtab_header->sh_type) )
+	{
+		print_error( "[Error] '%s' is not symtab section (%d)\n", section_name, idx );
+	}
+
+	// read strtab section (store symbol name)
+	Elf64_Half strtab_idx; 
+	char *symtab_loc;
+	if ( SHT_SYMTAB == symtab_header->sh_type )
+	{
+		strtab_idx = search_section_idx( fin, elf_header, ".strtab" );
+	}
+	else if ( SHT_DYNSYM == symtab_header->sh_type )
+	{
+		strtab_idx = search_section_idx( fin, elf_header, ".dynstr" );
+	}
+	Elf64_Shdr *strtab_header;
+	strtab_header = hash_section_idx_to_sh_header[strtab_idx];
+
+	Elf64_Off origin_file_pos;
+	Elf64_Off sym_va_offset;
+	Elf64_Off rip_file_offset;
+	size_t n_symbol = symtab_header->sh_size / symtab_header->sh_entsize;
+	Elf64_Off S_mA_pP; 
+	Elf64_Sym symbol;
+	Elf64_Shdr *belong_sh_header;
+	char symbol_name[BUFSIZ];
+	unsigned char *pch;
+	bool is_match_pattern;
+	bool match_at_least_one = false;
+	seek_file( fin, symtab_header->sh_offset );
+	for ( size_t i = 0; i < n_symbol; ++i )
+	{
+		// read symbol entry from symtab
+		read_n_byte( fin, symtab_header->sh_entsize, &symbol );
+		origin_file_pos = ftell( fin );
+
+		// read symbol name from strtab
+		seek_file( fin, strtab_header->sh_offset + symbol.st_name );
+		read_string( fin, symbol_name );
+
+		// back to symtab file offset
+		seek_file( fin, origin_file_pos );
+
+		// check name match search pattern if necessary
+		is_match_pattern = false;
+		if ( exact_match )
+		{
+			if ( 0 == strcmp( symbol_name, func_name ) )
+			{
+				is_match_pattern = true;
+			}
+		}
+		else
+		{
+			if ( NULL != strstr( symbol_name, func_name ) )
+			{
+				is_match_pattern = true;
+			}
+		}
+		if ( is_match_pattern )
+		{
+			match_at_least_one = true;
+		}
+		else
+		{
+			continue;
+		}
+		
+		
+		if ( STT_FUNC == ELF64_ST_TYPE( symbol.st_info ) )
+		{
+			belong_sh_header = hash_section_idx_to_sh_header[symbol.st_shndx];
+			sym_va_offset = symbol.st_value;
+
+			// instruction is S(func vaddr) - A(next instruction vaddr)
+			S_mA_pP = sym_va_offset - rip;
+			rip_file_offset = belong_sh_header->sh_offset + (rip - belong_sh_header->sh_addr);
+			printf( "func=%s vaddr=%0#10lx rip_vaddr=%0#10lx rip_faddr=%0#10lx callq_faddr=%0#10lx callq=[ e8", symbol_name, sym_va_offset, rip, rip_file_offset, rip_file_offset - 0x5 );
+			for ( int i = 0; i < 4; ++i )
+			{
+				pch = (char *)&S_mA_pP + i;
+				printf( " %02hhx", *pch );
+			}
+			printf( " ]\n" );
+		}
+
+		seek_file( fin, origin_file_pos );
+
+		if ( exact_match && is_match_pattern )
+		{
+			break;
+		}
+	}
+
+	if ( !match_at_least_one )
+	{
+		print_warning( "[Warning] cannot find function symbol name '%s' in section\n", func_name, section_name );
+	}
+}
+
+void eval_jmp_instruction ( unsigned long jmp_vaddr, unsigned long rip )
+{
+	// instruction is S(func vaddr) - A(next instruction vaddr)
+	unsigned char *pch;
+	Elf64_Off S_mA_pP = jmp_vaddr - rip;
+	printf( "jmp_to=%0#10lx rip=%0#10lx jmpq=[ e9", jmp_vaddr, rip ); // long jmp
+	for ( int i = 0; i < 4; ++i )
+	{
+		pch = (char *)&S_mA_pP + i;
+		printf( " %02hhx", *pch );
+	}
+	printf( " ] jmp=[ eb" ); // short jmp
+	for ( int i = 0; i < 1; ++i )
+	{
+		pch = (char *)&S_mA_pP + i;
+		printf( " %02hhx", *pch );
+	}
+	printf( "]\n" );;
+}
+
 int main ( int argc, char **argv )
 {
 	// parse command line arguments
@@ -1528,6 +1664,24 @@ int main ( int argc, char **argv )
 		else
 		{
 		}
+	}
+	else if ( EVAL_CALL == g_opts.utility ) 
+	{
+		if ( g_opts.section_name )
+		{
+			eval_call_instruction( fin, &elf_header, g_opts.section_name, g_opts.search_pattern, g_opts.rip, g_opts.exact_match );
+		}
+		else
+		{
+			printf( "search section %s ...\n", ".symtab" );
+			eval_call_instruction( fin, &elf_header, ".symtab", g_opts.search_pattern, g_opts.rip, g_opts.exact_match );
+			printf( "search section %s ...\n", ".dynsym" );
+			eval_call_instruction( fin, &elf_header, ".dynsym", g_opts.search_pattern, g_opts.rip, g_opts.exact_match );
+		}
+	}
+	else if ( EVAL_JMP == g_opts.utility ) 
+	{
+		eval_jmp_instruction( g_opts.jmp_vaddr, g_opts.rip );
 	}
 
 	return EXIT_SUCCESS;

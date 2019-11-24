@@ -18,6 +18,8 @@ typedef enum
 	FIND_SYMBOL,
 	FIND_FUNCTION,
 
+	EVAL_CALL,
+	EVAL_JMP,
 
 } hack_utility;
 
@@ -58,6 +60,10 @@ typedef struct
 	char *reg_name_map;
 
 	int dump_string_width;
+
+	// use in eval instruction modify of call or jmp
+	unsigned long rip;
+	unsigned long jmp_vaddr;
 
 	bool exact_match;
 	bool debug;

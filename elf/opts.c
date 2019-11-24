@@ -20,6 +20,7 @@ opt_t g_opts = {
 	.reg_name_map = NULL,
 
 	.dump_string_width = 30,
+	.rip = 0,
 
 	.exact_match = true,
 	.debug = false
@@ -59,6 +60,10 @@ void show_help ()
 		"[Function Search]\n"
 		"  elf_hack -e <elf_file> -u find_funtion -p <pattern>\n"
 		"\n"
+		"[Evaluate Instruction]\n"
+		"  elf_hack -e <elf_file> -u eval_call -r <rip> -p <function>\n"
+		"  elf_hack -e <elf_file> -u eval_jmp  -r <rip> -j <jmp to vaddr>\n"
+		"\n"
 		"[Other]\n"
 		"  -h  =>  show help\n"
 		"  -d  =>  show debug information\n"
@@ -93,6 +98,8 @@ void parse_cmd_options ( int argc, char **argv )
 			{"pattern", required_argument, 0, 'p'},
 			{"width", required_argument, 0, 'w'},
 			{"table", required_argument, 0, 'b'},
+			{"rip", required_argument, 0, 'r'},
+			{"jmp_to", required_argument, 0, 'j'},
 			{"convert", required_argument, 0, 'l'},
 
 			{0, 0, 0, 0}
@@ -101,7 +108,7 @@ void parse_cmd_options ( int argc, char **argv )
 		// getopt_long stores the option index here
 		int option_index = 0;
 
-		c = getopt_long( argc, argv, "htdu:c:m:e:s:p:w:b:", long_options, &option_index );
+		c = getopt_long( argc, argv, "htdu:c:m:e:s:p:w:b:r:j:", long_options, &option_index );
 
 		// detect the end of the options
 		if ( -1 == c )
@@ -161,6 +168,14 @@ void parse_cmd_options ( int argc, char **argv )
 				{
 					g_opts.utility = FIND_FUNCTION;
 				}
+				else if ( 0 == strcmp(optarg, "eval_call") )
+				{
+					g_opts.utility = EVAL_CALL;
+				}
+				else if ( 0 == strcmp(optarg, "eval_jmp") )
+				{
+					g_opts.utility = EVAL_JMP;
+				}
 				else
 				{
 					fprintf( stderr, "[Error] unknown utility '%s'\n", optarg );
@@ -216,6 +231,14 @@ void parse_cmd_options ( int argc, char **argv )
 				g_opts.dump_string_width = atoi( optarg );
 				break;
 
+			case 'r':
+				g_opts.rip = strtoul( optarg, NULL, 16 );
+				break;
+
+			case 'j':
+				g_opts.jmp_vaddr = strtoul( optarg, NULL, 16 );
+				break;
+
 			case 'm':
 				if ( 0 == strcmp(optarg, "x86_32") )
 				{
@@ -258,6 +281,12 @@ void parse_cmd_options ( int argc, char **argv )
 	{
 		fprintf( stderr, "please input -e <ELF file>\n" );
 		exit( EXIT_FAILURE );
+	}
+
+	if ( (EVAL_CALL == g_opts.utility) && (0 == g_opts.rip) )
+	{
+		fprintf( stderr, "please input argument -i <rip>\n" );
+		abort();
 	}
 }
 

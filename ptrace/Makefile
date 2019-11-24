@@ -29,13 +29,17 @@ MOVE       = mv -f
 #=================================================
 BIN_DIR       	  := bin
 LIB_DIR       	  := library
-TARGET            := demo1 demo2 test 
+TARGET            := data ni break test 
 
 #=================================================
 # Compile implicit rules
 #=================================================
 %.o:%.c
 	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE)
+	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+
+%.i:%.c
+	$(CC) -E $< -o $@ $(CFLAGS) $(INCLUDE)
 	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
 
 %.s:%.c
@@ -61,12 +65,16 @@ libdyn_pic.so:dyn_pic.c
 #=================================================
 # Target rules
 #=================================================
-demo1: demo1.o 
+data: data.o
+	cd $(LIB_DIR);\
+	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
+	$(MOVE) $@ ../$(BIN_DIR)
+ni: ni.o
 	cd $(LIB_DIR);\
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)
 
-demo2: demo2.o 
+break: break.o
 	cd $(LIB_DIR);\
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)
@@ -75,6 +83,7 @@ test: test.o
 	cd $(LIB_DIR);\
 	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
 	$(MOVE) $@ ../$(BIN_DIR)
+
 
 #=================================================
 # Phony rules
