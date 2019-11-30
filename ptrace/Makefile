@@ -34,9 +34,9 @@ TARGET            := data ni break test
 #=================================================
 # Compile implicit rules
 #=================================================
-%.o:%.c
-	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE)
-	@$(MOVE) $@ $(LIB_DIR) # @ means do not echo command
+%:%.c
+	$(CC) $(INCLUDE) $(LIBS) $(CFLAGS) $< -o $@
+	$(MOVE) $@ $(BIN_DIR)
 
 %.i:%.c
 	$(CC) -E $< -o $@ $(CFLAGS) $(INCLUDE)
@@ -65,25 +65,6 @@ libdyn_pic.so:dyn_pic.c
 #=================================================
 # Target rules
 #=================================================
-data: data.o
-	cd $(LIB_DIR);\
-	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
-	$(MOVE) $@ ../$(BIN_DIR)
-ni: ni.o
-	cd $(LIB_DIR);\
-	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
-	$(MOVE) $@ ../$(BIN_DIR)
-
-break: break.o
-	cd $(LIB_DIR);\
-	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
-	$(MOVE) $@ ../$(BIN_DIR)
-
-test: test.o
-	cd $(LIB_DIR);\
-	$(LINKER) -o $@ $(notdir $^) $(LIBS);\
-	$(MOVE) $@ ../$(BIN_DIR)
-
 
 #=================================================
 # Phony rules
