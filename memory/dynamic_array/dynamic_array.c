@@ -37,7 +37,7 @@ void *dynamic_array_realloc( void *mem, size_t origin_n_memb, size_t new_n_memb,
 	// amortized each call consume only (2 * new_n_memb)/N is O(1)
 	if ( 0 == origin_n_memb )
 	{
-		mem = (void *) malloc( new_bound * sizeof(memb_size) );
+		mem = (void *) malloc( new_bound * memb_size );
 		if ( debug )
 		{
 			fprintf( stderr, "[Dynamic Array] growth space 0 -> %lu\n", new_bound );
@@ -49,7 +49,7 @@ void *dynamic_array_realloc( void *mem, size_t origin_n_memb, size_t new_n_memb,
 		{
 			fprintf( stderr, "[Dynamic Array] growth space %lu -> %lu\n", origin_bound, new_bound );
 		}
-		mem = (void *) realloc( mem, (new_bound * sizeof(memb_size)) );
+		mem = (void *) realloc( mem, (new_bound * memb_size) );
 	}
 	else
 	{
